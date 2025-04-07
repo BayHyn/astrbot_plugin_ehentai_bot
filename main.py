@@ -91,8 +91,6 @@ class EHentaiBot(Star):
     
     @filter.command("看eh")
     async def download_gallery(self, event: AstrMessageEvent):
-        cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
-
         image_folder = Path(self.config['output']['image_folder'])
         pdf_folder = Path(self.config['output']['pdf_folder'])
 
@@ -105,24 +103,24 @@ class EHentaiBot(Star):
             os.remove(f)
 
         try:
+            cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
             args = self.parse_command(cleaned_text)
             if len(args) != 1:
-                self.eh_helper(event)
+                await self.eh_helper(event)
                 return
 
             pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/\d{7}/[a-f0-9]{10}/$')
             if not pattern.match(args[0]):
-                await event.send(event.plain_result("画廊链接异常，请重试..."))
+                await event.send(event.plain_result(f"画廊链接异常，请重试..."))
                 return
 
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-                is_pdf_exist = await self.downloader.process_pagination(event, session, args)
+                is_pdf_exist = await self.downloader.process_pagination(event, session, args[0])
 
                 if not is_pdf_exist:
                     title = self.downloader.gallery_title
                     await self.pdf_generator.merge_images_to_pdf(event, title)
                     await self.uploader.upload_file(event, self.config['output']['pdf_folder'], title)
-
         except Exception as e:
             logger.exception("下载失败")
             await event.send(event.plain_result(f"下载失败：{str(e)}"))
