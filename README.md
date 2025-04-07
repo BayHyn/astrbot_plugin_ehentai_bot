@@ -1,0 +1,123 @@
+# 适配 LangBot 的 EHentai画廊 转 PDF 插件
+
+## 安装方法
+
+1. **使用管理员账号安装插件**  
+在 LangBot 配置完毕后，使用管理员账号对 Bot 发送以下指令：
+```
+!plugin get https://github.com/exneverbur/ShowMeJM
+```
+2. **通过 WebUI 安装插件**  
+- 打开 "LangBot WebUI" -> "插件" -> "+ 安装"  
+- 输入以下地址并点击安装：
+```
+https://github.com/drdon1234/ehentai_bot
+```
+
+---
+
+## 使用说明
+
+### 指令帮助
+
+- **搜索画廊**  
+```搜eh [关键词] [最低评分（2-5，默认2）] [最少页数（默认1）] [获取第几页的画廊列表（默认1）]```
+
+- **下载画廊**  
+```看eh [画廊链接]```
+
+- **获取指令帮助**  
+```eh```
+
+### 可用的搜索方式
+
+1. 基础搜索：  
+```搜eh [关键词]```
+
+2. 高级搜索：  
+```搜eh [关键词] [最低评分]```
+ 
+    ```搜eh [关键词] [最低评分] [最少页数]```
+
+4. 高级搜索 + 搜索指定页：  
+```搜eh [关键词] [最低评分] [最少页数] [获取第几页的画廊列表]```
+
+**注意：**  
+- 搜索使用的多关键词使用以下符号连接`,` `，` `+`，关键词之间不要添加任何空格
+- ~~EHentai 的分页目录仅能通过迭代生成，建议避免获取较大页数的画廊列表。~~ (已可直接跳转到指定页)
+
+---
+
+## 配置文件修改
+
+使用前请先修改配置文件 `config.yaml`：
+
+### 平台设置
+```
+platform:
+  type: "napcat" # 消息平台，兼容 napcat, llonebot, lagrange
+  http_host: "127.0.0.1" # 非 docker 部署一般为 127.0.0.1，docker 部署一般为宿主机局域网 IP
+  http_port: 2333 # 消息平台监听端口，通常为 2333 或 3000
+  api_token: "" # HTTP 服务器 token，没有则不填
+```
+
+### 请求设置
+```
+request:
+  headers:
+    User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+  website: "e-hentai"  # 表站: e-hentai | 里站: exhentai
+  cookies: # 缺少有效 cookie 时请不要将 website 设置为 exhentai
+    ipb_member_id: ""
+    ipb_pass_hash: ""
+    igneous: ""
+  proxies: "" # 墙内用户必填项，代理软件位于宿主机时，非 docker 部署一般为http://127.0.0.1:port，docker 部署一般为http://{宿主机局域网ip}:port
+  concurrency: 10 # 并发数量限制
+  max_retries: 3 # 请求重试次数，如果你的代理不稳定或带宽不够建议适量增加次数
+  timeout: 5 # 超时时间，同上
+```
+
+### 输出设置
+```
+output:
+  image_folder: "/app/sharedFolder/tempImages" # 暂时存放画廊图片的文件夹路径
+  pdf_folder: "/app/sharedFolder/ehentai" # 存放 PDF 文件的路径
+  jpeg_quality: 85 # 图片质量，100 为不压缩，85 左右可以达到文件大小和质量的最佳平衡
+  max_pages_per_pdf: 200 # 单个 PDF 文件最大页数
+```
+
+---
+
+## Docker 部署注意事项
+
+如果您是 Docker 部署，请务必为消息平台容器挂载 PDF 文件所在的文件夹，否则消息平台将无法解析文件路径。
+
+示例挂载方式(NapCat)：
+- 对 LangBot：`/vol3/1000/dockerSharedFolder -> /app/sharedFolder`
+- 对 NapCat：`/vol3/1000/dockerSharedFolder -> /app/sharedFolder`
+
+---
+
+## 已知 BUG
+
+- ~~搜索指定页不可用~~ (已修复)
+- ~~在画廊仅有一页时获取子分页错误~~ (已修复)
+
+---
+
+## 开发中的功能
+
+- ~~请求结构中添加cookie选项以访问里站~~ (已添加)
+- 随机画廊
+- ~~重构项目以增加可读性~~ (已重构)
+
+---
+
+## 使用示例
+- 搜索  
+
+![搜索示例](https://github.com/user-attachments/assets/68f7c828-5891-4b2e-abc3-f17e3b57eb37)
+
+- 下载  
+
+![下载示例](https://github.com/user-attachments/assets/f5f6085a-078c-4235-9bff-51e635bba3d6)
