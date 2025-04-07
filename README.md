@@ -1,18 +1,8 @@
-# 适配 LangBot 的 EHentai画廊 转 PDF 插件
+# 适配 Astrbot 的 EHentai画廊 转 PDF 插件
 
 ## 安装方法
 
-1. **使用管理员账号安装插件**  
-在 LangBot 配置完毕后，使用管理员账号对 Bot 发送以下指令：
-```
-!plugin get https://github.com/exneverbur/ShowMeJM
-```
-2. **通过 WebUI 安装插件**  
-- 打开 "LangBot WebUI" -> "插件" -> "+ 安装"  
-- 输入以下地址并点击安装：
-```
-https://github.com/drdon1234/ehentai_bot
-```
+1. **通过 WebUI 安装插件**  
 
 ---
 
