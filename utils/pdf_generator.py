@@ -16,7 +16,7 @@ class PDFGenerator:
         self.helpers = helpers
 
     async def merge_images_to_pdf(self, event: AstrMessageEvent, gallery_title: str) -> str:
-        # yield event.plain_result("正在将图片合并为pdf文件，请稍候...")
+        await event.send(event.plain_result("正在将图片合并为pdf文件，请稍候..."))
 
         image_files = natsorted(glob.glob(str(Path(self.config['output']['image_folder']) / "*.jpg")))
 
