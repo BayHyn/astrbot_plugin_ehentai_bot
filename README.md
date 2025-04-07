@@ -48,7 +48,7 @@ https://github.com/drdon1234/astrbot_plugin_ehentai_bot
 
 ---
 
-## 配置文件修改
+## 配置文件修改（重要！）
 
 使用前请先修改配置文件 `config.yaml`：
 
