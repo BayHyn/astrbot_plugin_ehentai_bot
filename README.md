@@ -1,8 +1,18 @@
-# 适配 Astrbot 的 EHentai画廊 转 PDF 插件
+# 适配 AstrBot 的 EHentai画廊 转 PDF 插件
 
 ## 安装方法
 
-1. **通过 WebUI 安装插件**  
+1. **通过 插件市场 安装**  
+- 打开 "AstrBot WebUI" -> "插件市场" -> "右上角 Search"  
+- 搜索任何与本项目相关的关键词，找到插件后点击安装
+- 推荐通过唯一标识符搜索：```astrbot_plugin_ehentai_bot```
+
+2. **通过 Github仓库链接 安装**  
+- 打开 "AstrBot WebUI" -> "插件市场" -> "右下角 '+' 按钮"  
+- 输入以下地址并点击安装：
+```
+https://github.com/drdon1234/astrbot_plugin_ehentai_bot
+```
 
 ---
 
