@@ -103,6 +103,8 @@ class EHentaiBot(Star):
             os.remove(f)
 
         try:
+            await event.send(event.plain_result("正在下载，请稍候..."))
+
             cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
             args = self.parse_command(cleaned_text)
             if len(args) != 1:
