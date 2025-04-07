@@ -34,9 +34,7 @@ class EHentaiBot(Star):
         return [p for p in message.split(' ') if p][1:]
         
     @filter.command("查eh")
-    async def search_gallery(self, event: AstrMessageEvent, cleaned_text: str):
-        event.send(event.plain_result("test1"))
-        event.send(event.plain_result(event.message_str))
+    async def search_gallery(self, event: AstrMessageEvent):
         defaults = {
             "min_rating": 2,
             "min_pages": 1,
@@ -44,8 +42,7 @@ class EHentaiBot(Star):
         }
         
         try:
-            print(event.message_str)
-            print(cleaned_text)
+            cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
             args = self.parse_command(cleaned_text)
             if not args:
                 await self.eh_helper(event)
@@ -143,7 +140,6 @@ class EHentaiBot(Star):
 [2] 搜eh [关键词] [最低评分]
 [3] 搜eh [关键词] [最低评分] [最少页数]
 [4] 搜eh [关键词] [最低评分] [最少页数] [获取第几页的画廊列表]"""
-        event.send(event.plain_result("test2"))
         await event.send(event.plain_result(help_text))
 
     @filter.command("重载eh配置")
