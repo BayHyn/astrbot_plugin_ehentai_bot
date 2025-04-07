@@ -1,226 +1,155 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
+
+from pathlib import Path
+import os
 import re
-import random
+import aiohttp
+import glob
+import logging
+from typing import List
 
-import jmcomic
-from .utils import domain_checker, jm_file_resolver
-from .utils.jm_options import JmOptions
-from .utils.jm_random_search import JmRandomSearch
+from .utils.config_manager import load_config
+from .utils.downloader import Downloader
+from .utils.helpers import Helpers
+from .utils.html_parser import HTMLParser
+from .utils.message_adapter import MessageAdapter
+from .utils.pdf_generator import PDFGenerator
 
-@register("ShowMeJM", "exneverbur", "jm下载", "2.4")
-class ShowMeJM(Star):
-    init_options = {
-        # 你使用的消息平台, 只能为'napcat', 'llonebot', 'lagrange'
-        "platform": 'napcat',
-        # 消息平台的域名,端口号和token
-        # 使用时需在napcat内配置http服务器 host和port对应好
-        'http_host': 'localhost',
-        'http_port': 2333,
-        # 若消息平台未配置token则留空 否则填写配置的token
-        'token': '',
-        # 打包成pdf时每批处理的图片数量 每批越小内存占用越小 (仅供参考, 建议按实际调整: 设置为50时峰值占用约1.5G内存, 设置为20时最高占用1G左右)
-        'batch_size': 20,
-        # 每个pdf中最多有多少个图片 超过此数量时将会创建新的pdf文件 设置为0则不限制, 所有图片都在一个pdf文件中
-        'pdf_max_pages': 200,
-        # 上传到群文件的哪个目录?默认"/"是传到根目录 如果指定的目录不存在会自动创建文件夹
-        # 'group_folder': 'JM漫画',
-        'group_folder': '/',
-        # 是否开启自动匹配消息中的jm号功能(消息中的所有数字加起来是6~7位数字就触发下载本子) 此功能可能会下载很多不需要的本子占据硬盘, 请谨慎开启
-        'auto_find_jm': True,
-        # 如果成功找到本子是否停止触发其他插件(Ture:若找到本子则后续其他插件不会触发)
-        'prevent_default': True,
-        # 配置文件所在位置
-        'option': 'plugins/ShowMeJM/config.yml',
-        # 是否在启动时获取本子总页数(此功能在插件加载时会访问JM搜索页数, 将会提高随机本子指令的搜索速度)
-        'open_random_search': True,
-        # 白名单 配置个人白名单和群白名单 若为空或不配置则不启用白名单功能
-        # 'person_whitelist': [123456, 654321],
-        # 'group_whitelist': [12345678],
-    }
 
+@register("ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "2.0")
+class EHentaiBot(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.options = JmOptions.from_dict(self.init_options)
-        file_option = jmcomic.create_option_by_file(self.options.option)
-        self.client = file_option.new_jm_client()
-        self.api_client = file_option.new_jm_client(impl='api')
-        self.random_searcher = JmRandomSearch(self.api_client)
-
-    async def initialize(self):
-        if self.options.open_random_search:
-            await self.random_searcher.get_max_page()
+        self.config = load_config()
+        self.uploader = MessageAdapter(self.config)
+        self.helpers = Helpers()
+        self.parser = HTMLParser()
+        self.downloader = Downloader(self.config, self.uploader, self.parser, self.helpers)
+        self.pdf_generator = PDFGenerator(self.config, self.helpers)
 
     @staticmethod
-    def parse_command(message: str):
-        parts = message.split(' ')  # 分割命令和参数
-        args = []
-        if len(parts) > 1:
-            args = parts[1:]
-        print("接收参数：", args)
-        return args
-
-    @filter.command("jm更新域名")
-    async def do_update_domain(self, event: AstrMessageEvent):
-        if not self.verify_whitelist(event):
-            return
-            
-        await event.send(event.plain_result("检查中, 请稍后..."))
-        # 自动将可用域名加进配置文件中
-        domains = domain_checker.get_usable_domain(self.options.option)
-        usable_domains = []
-        check_result = "域名连接状态检查完成√\n"
-        for domain, status in domains:
-            check_result += f"{domain}: {status}\n"
-            if status == 'ok':
-                usable_domains.append(domain)
-        await event.send(event.plain_result(check_result))
+    def parse_command(message: str) -> List[str]:
+        return [p for p in message.split(' ') if p][1:]
+        
+    @filter.command("搜eh")
+    async def search_gallery(self, event: AstrMessageEvent):
+        defaults = {
+            "min_rating": 2,
+            "min_pages": 1,
+            "target_page": 1
+        }
+        
         try:
-            domain_checker.update_option_domain(self.options.option, usable_domains)
+            cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
+            args = self.parse_command(cleaned_text)
+            if not args:
+                await self.eh_helper(event)
+                return
+                
+            if len(args) > 4:
+                await event.send(event.plain_result("参数过多，最多支持4个参数：标签 评分 页数 页码"))
+                return
+                
+            tags = re.sub(r'[，,+]+', ' ', args[0])
+            
+            params = defaults.copy()
+            param_names = ["min_rating", "min_pages", "target_page"]
+            
+            for i, (name, value) in enumerate(zip(param_names, args[1:]), 1):
+                try:
+                    params[name] = int(value)
+                except ValueError:
+                    await event.send(event.plain_result(f"第{i + 1}个参数应为整数: {value}"))
+                    return
+            
+            await event.send(event.plain_result("正在搜索，请稍候..."))
+            
+            search_results = await self.downloader.crawl_ehentai(
+                tags, 
+                params["min_rating"], 
+                params["min_pages"], 
+                params["target_page"]
+            )
+            
+            if not search_results:
+                await event.send(event.plain_result("未找到符合条件的结果"))
+                return
+    
+            results_ui = self.helpers.get_search_results(search_results)
+            print(results_ui)
+            await event.send(event.plain_result(results_ui))
+        
+        except ValueError as e:
+            logger.exception("参数解析失败")
+            await event.send(event.plain_result(f"参数错误：{str(e)}"))
+            
         except Exception as e:
-            await event.send(event.plain_result("修改配置文件时发生问题: " + str(e)))
-            return
-        await event.send(event.plain_result(
-            "已将可用域名添加到配置文件中~\n PS:如遇网络原因下载失败, 对我说:'jm清空域名'指令可以将配置文件中的域名清除, 此时我将自动寻找可用域名哦"))
+            logger.exception("搜索失败")
+            await event.send(event.plain_result(f"搜索失败：{str(e)}"))
+    
+    @filter.command("看eh")
+    async def download_gallery(self, event: AstrMessageEvent):
+        image_folder = Path(self.config['output']['image_folder'])
+        pdf_folder = Path(self.config['output']['pdf_folder'])
 
-    @filter.command("jm清空域名")
-    async def do_clear_domain(self, event: AstrMessageEvent):
-        if not self.verify_whitelist(event):
-            return
-            
-        domain_checker.clear_domain(self.options.option)
-        await event.send(event.plain_result(
-            "已将默认下载域名全部清空, 我将会自行寻找可用域名\n PS:对我说:'jm更新域名'指令可以查看当前可用域名并添加进配置文件中哦"))
+        if not image_folder.exists():
+            image_folder.mkdir(parents=True)
+        if not pdf_folder.exists():
+            pdf_folder.mkdir(parents=True)
 
-    @filter.command("随机jm")
-    async def do_random_download(self, event: AstrMessageEvent):
-        if not self.verify_whitelist(event):
-            return
-            
-        if not self.options.open_random_search:
-            await event.send(event.plain_result("随机下载功能未开启"))
-            return
-        if self.random_searcher.is_max_page_finding:
-            await event.send(event.plain_result("正在获取所需数据中, 请稍后再试!"))
-            return
-        
-        cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
-        args = self.parse_command(cleaned_text)
-        tags = ''
-        if len(args) == 0:
-            await event.send(event.plain_result("正在搜索随机本子，请稍候..."))
-        elif len(args) == 1:
-            search_query = args[0]
-            tags = re.sub(r'[，,]+', ' ', search_query)
-            await event.send(event.plain_result(f"正在搜索关键词为 {tags} 随机本子，请稍候..."))
-        else:
-            await event.send(event.plain_result("使用方法不正确，请输入指令 jm 获取使用说明"))
-            return
-        
-        max_page = await self.random_searcher.get_max_page(query=tags)
-        if max_page == 0:
-            await event.send(event.plain_result(
-                f"未搜索到任何关键词为 {tags} 随机本子，建议更换为其他语言的相同关键词重新搜索..."))
-            return
-        
-        random_page = random.randint(1, max_page)
+        for f in glob.glob(str(Path(self.config['output']['image_folder']) / "*.*")):
+            os.remove(f)
+
         try:
-            result = self.api_client.search_site(search_query=tags, page=random_page)
-            album_list = list(result.iter_id_title())
-            if not album_list:
-                raise ValueError("未找到任何漫画")
-            random_index = random.randint(0, len(album_list) - 1)
-            selected_album_id = album_list[random_index][0]
-            selected_album_title = album_list[random_index][1]
-            await event.send(event.plain_result(
-                f"你今天的幸运本子是：[{selected_album_id}]{selected_album_title}，即将开始下载，请稍候..."))
-            await jm_file_resolver.before_download(event, self.options, selected_album_id)
+            await event.send(event.plain_result("正在下载，请稍候..."))
+
+            cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
+            args = self.parse_command(cleaned_text)
+            if len(args) != 1:
+                await self.eh_helper(event)
+                return
+
+            pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/\d{7}/[a-f0-9]{10}/$')
+            if not pattern.match(args[0]):
+                await event.send(event.plain_result(f"画廊链接异常，请重试..."))
+                return
+
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+                is_pdf_exist = await self.downloader.process_pagination(event, session, args[0])
+
+                if not is_pdf_exist:
+                    title = self.downloader.gallery_title
+                    await self.pdf_generator.merge_images_to_pdf(event, title)
+                    await self.uploader.upload_file(event, self.config['output']['pdf_folder'], title)
         except Exception as e:
-            await event.send(event.plain_result(f"随机本子下载失败：{e}"))
+            logger.exception("下载失败")
+            await event.send(event.plain_result(f"下载失败：{str(e)}"))
 
-    @filter.command("jm")
-    async def do_download(self, event: AstrMessageEvent):
-        if not self.verify_whitelist(event):
-            return
-            
-        cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
-        args = self.parse_command(cleaned_text)
-        if len(args) == 0:
-            await event.send(event.plain_result(
-                "你是不是在找: \n""1.搜索功能: \n""格式: 查jm [关键词/标签] [页码(默认第一页)]\n""例: 查jm 鸣潮,+无修正 2\n\n""2.下载指定id的本子:\n""格式:jm [jm号]\n""例: jm 350234\n\n""3.下载随机本子:\n""格式:随机jm\n\n""4.寻找可用下载域名:\n""格式:jm更新域名\n\n""5.清除默认域名:\n""格式:jm清空域名"))
-            return
-        await event.send(event.plain_result(f"即将开始下载{args[0]}, 请稍候..."))
-        await jm_file_resolver.before_download(event, self.options, args[0])
+    @filter.command("eh")
+    async def eh_helper(self, event: AstrMessageEvent):
+        help_text = """eh指令帮助：
+[1] 搜索画廊: 搜eh [关键词] [最低评分（2-5，默认2）] [最少页数（默认1）] [获取第几页的画廊列表（默认1）]
+[2] 下载画廊: 看eh [画廊链接]
+[3] 获取指令帮助: eh
+[4] 热重载config相关参数: 重载eh配置
 
-    @filter.command("查jm")
-    async def do_search(self, event: AstrMessageEvent):
-        if not self.verify_whitelist(event):
-            return
-            
-        cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
-        args = self.parse_command(cleaned_text)
-        if len(args) == 0:
-            await event.send(event.plain_result(
-                "请指定搜索条件, 格式: 查jm [关键词/标签] [页码(默认第一页)]\n例: 查jm 鸣潮,+无修正 2\n使用提示: 请使用中英文任意逗号隔开每个关键词/标签，切勿使用空格进行分割"))
-            return
-        
-        page = int(args[1]) if len(args) > 1 else 1
-        search_query = args[0]
-        tags = re.sub(r'[，,]+', ' ', search_query)
-        search_page = self.api_client.search_site(search_query=tags, page=page)
-        
-        results = []
-        for album_id, title in search_page:
-            results.append([album_id, title])
-        search_result = f"当前为第{page}页\n\n"
-        i = 1
-        for itemArr in results:
-            search_result += f"{i}. [{itemArr[0]}]: {itemArr[1]}\n"
-            i += 1
-        search_result += "\n对我说jm jm号进行下载吧~"
-        await event.send(event.plain_result(search_result))
+可用的搜索方式:
+[1] 搜eh [关键词]
+[2] 搜eh [关键词] [最低评分]
+[3] 搜eh [关键词] [最低评分] [最少页数]
+[4] 搜eh [关键词] [最低评分] [最少页数] [获取第几页的画廊列表]"""
+        await event.send(event.plain_result(help_text))
 
-    @filter.message
-    async def handle_message(self, event: AstrMessageEvent):
-        # 处理自动查找JM号的功能
-        if not self.options.auto_find_jm:
-            return
-        
-        if not self.verify_whitelist(event):
-            return
-            
-        message = event.message_str
-        # 检查是否是特定命令，如果是则跳过
-        if message.startswith("jm") or message.startswith("查jm") or message.startswith("随机jm"):
-            return
-            
-        cleaned_text = re.sub(r'@\S+\s*', '', message).strip()
-        numbers = re.findall(r'\d+', cleaned_text)
-        concatenated_numbers = ''.join(numbers)
-        if 6 <= len(concatenated_numbers) <= 7:
-            await event.send(event.plain_result(f"你提到了{concatenated_numbers}...对吧?"))
-            await jm_file_resolver.before_download(event, self.options, concatenated_numbers)
-
-    # 校验白名单权限 - 适配AstrBot API
-    def verify_whitelist(self, event: AstrMessageEvent):
-        # 假设event有这些属性，根据实际API调整
-        is_group = hasattr(event, 'group_id') and event.group_id is not None
-        target = event.group_id if is_group else event.user_id
-        
-        if is_group:
-            whitelist = self.options.group_whitelist
-        else:
-            whitelist = self.options.person_whitelist
-            
-        if whitelist is None or len(whitelist) == 0:
-            return True
-            
-        res = target in whitelist
-        if not res:
-            logger.info(f'该群或好友"{target}"不在白名单中, 停止访问')
-        return res
+    @filter.command("重载eh配置")
+    async def reload_config(self, event: AstrMessageEvent):
+        await event.send(event.plain_result("正在重载配置参数"))
+        self.config = load_config()
+        self.uploader = MessageAdapter(self.config)
+        self.downloader = Downloader(self.config, self.uploader, self.parser, self.helpers)
+        self.pdf_generator = PDFGenerator(self.config, self.helpers)
+        await event.send(event.plain_result("已重载配置参数"))
 
     async def terminate(self):
-        # 插件终止时的清理工作
         pass
