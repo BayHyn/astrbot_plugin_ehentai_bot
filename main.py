@@ -50,7 +50,7 @@ class EHentaiBot(Star):
                 return
                 
             if len(args) > 4:
-                yield event.plain_result("参数过多，最多支持4个参数：标签 评分 页数 页码")
+                await event.send(event.plain_result("参数过多，最多支持4个参数：标签 评分 页数 页码"))
                 return
                 
             tags = re.sub(r'[，,+]+', ' ', args[0])
@@ -62,10 +62,10 @@ class EHentaiBot(Star):
                 try:
                     params[name] = int(value)
                 except ValueError:
-                    yield event.plain_result(f"第{i + 1}个参数应为整数: {value}")
+                    await event.send(event.plain_result(f"第{i + 1}个参数应为整数: {value}"))
                     return
             
-            # yield event.plain_result("正在搜索，请稍候...")
+            await event.send(event.plain_result("正在搜索，请稍候..."))
             
             search_results = await self.downloader.crawl_ehentai(
                 tags, 
@@ -75,20 +75,20 @@ class EHentaiBot(Star):
             )
             
             if not search_results:
-                yield event.plain_result("未找到符合条件的结果")
+                await event.send(event.plain_result("未找到符合条件的结果"))
                 return
     
             results_ui = self.helpers.get_search_results(search_results)
             print(results_ui)
-            yield event.plain_result(results_ui)
+            await event.send(event.plain_result(results_ui))
         
         except ValueError as e:
             logger.exception("参数解析失败")
-            yield event.plain_result(f"参数错误：{str(e)}")
+            await event.send(event.plain_result(f"参数错误：{str(e)}"))
             
         except Exception as e:
             logger.exception("搜索失败")
-            yield event.plain_result(f"搜索失败：{str(e)}")
+            await event.send(event.plain_result(f"搜索失败：{str(e)}"))
     
     @filter.command("看eh")
     async def download_gallery(self, event: AstrMessageEvent):
@@ -113,7 +113,7 @@ class EHentaiBot(Star):
 
             pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/\d{7}/[a-f0-9]{10}/$')
             if not pattern.match(args):
-                # yield event.plain_result("画廊链接异常，请重试...")
+                await event.send(event.plain_result("画廊链接异常，请重试..."))
                 return
 
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
@@ -126,7 +126,7 @@ class EHentaiBot(Star):
 
         except Exception as e:
             logger.exception("下载失败")
-            # yield event.plain_result(f"下载失败：{str(e)}")
+            await event.send(event.plain_result(f"下载失败：{str(e)}"))
 
     @filter.command("eh")
     async def eh_helper(self, event: AstrMessageEvent):
@@ -141,16 +141,16 @@ class EHentaiBot(Star):
 [2] 搜eh [关键词] [最低评分]
 [3] 搜eh [关键词] [最低评分] [最少页数]
 [4] 搜eh [关键词] [最低评分] [最少页数] [获取第几页的画廊列表]"""
-        yield event.plain_result(help_text)
+        await event.send(event.plain_result(help_text))
 
     @filter.command("重载eh配置")
     async def reload_config(self, event: AstrMessageEvent):
-        # yield event.plain_result("正在重载配置参数")
+        await event.send(event.plain_result("正在重载配置参数"))
         self.config = load_config()
         self.uploader = MessageAdapter(self.config)
         self.downloader = Downloader(self.config, self.uploader, self.parser, self.helpers)
         self.pdf_generator = PDFGenerator(self.config, self.helpers)
-        yield event.plain_result("已重载配置参数")
+        await event.send(event.plain_result("已重载配置参数"))
 
     async def terminate(self):
         pass
