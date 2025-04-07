@@ -33,60 +33,60 @@ class EHentaiBot(Star):
     def parse_command(message: str) -> List[str]:
         return [p for p in message.split(' ') if p][1:]
 
-    @filter.command("搜eh")
-    async def search_gallery(self, event: AstrMessageEvent):
-        cleaned_text = event.message_str
-
+    async def search_gallery(self, event: AstrMessageEvent, cleaned_text: str):
+        
         defaults = {
             "min_rating": 2,
             "min_pages": 1,
             "target_page": 1
         }
-
+        
         try:
             args = self.parse_command(cleaned_text)
             if not args:
-                self.eh_helper(event)
+                await self.eh_helper(event)
                 return
-
+                
             if len(args) > 4:
-                # yield event.plain_result("参数过多，最多支持4个参数：标签 评分 页数 页码")
+                yield event.plain_result("参数过多，最多支持4个参数：标签 评分 页数 页码")
                 return
-
-            tags = re.sub(r'[，,+]+', ' ', args)
+                
+            tags = re.sub(r'[，,+]+', ' ', args[0])
+            
             params = defaults.copy()
             param_names = ["min_rating", "min_pages", "target_page"]
-
+            
             for i, (name, value) in enumerate(zip(param_names, args[1:]), 1):
                 try:
                     params[name] = int(value)
                 except ValueError:
-                    # yield event.plain_result(f"第{i + 1}个参数应为整数: {value}")
+                    yield event.plain_result(f"第{i + 1}个参数应为整数: {value}")
                     return
-
+            
             # yield event.plain_result("正在搜索，请稍候...")
-
+            
             search_results = await self.downloader.crawl_ehentai(
-                tags,
-                params["min_rating"],
-                params["min_pages"],
+                tags, 
+                params["min_rating"], 
+                params["min_pages"], 
                 params["target_page"]
             )
-
+            
             if not search_results:
-                # yield event.plain_result("未找到符合条件的结果")
+                yield event.plain_result("未找到符合条件的结果")
                 return
-
+    
             results_ui = self.helpers.get_search_results(search_results)
             yield event.plain_result(results_ui)
-
+        
         except ValueError as e:
             logger.exception("参数解析失败")
-            # yield event.plain_result(f"参数错误：{str(e)}")
+            yield event.plain_result(f"参数错误：{str(e)}")
+            
         except Exception as e:
             logger.exception("搜索失败")
-            # yield event.plain_result(f"搜索失败：{str(e)}")
-
+            yield event.plain_result(f"搜索失败：{str(e)}")
+    
     @filter.command("看eh")
     async def download_gallery(self, event: AstrMessageEvent):
         cleaned_text = event.message_str
