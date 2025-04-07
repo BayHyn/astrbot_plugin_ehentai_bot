@@ -136,11 +136,11 @@ class Downloader:
 
         files = natsorted(matching_files)
         if files:
-            # yield event.plain_result("已找到本地画廊，发送中...")
+            await event.send(event.plain_result("已找到本地画廊，发送中..."))
             await self.uploader.upload_file(event, pdf_folder, self.gallery_title)
             return True
 
-        # yield event.plain_result("正在下载画廊图片，请稍候...")
+        await event.send(event.plain_result("正在下载画廊图片，请稍候..."))
 
         page_urls = [f"{gallery_url}?p={page}" for page in range(last_page_number)]
         all_subpage_urls = []
@@ -181,7 +181,7 @@ class Downloader:
         failed = [r for r in results if not r.get("success")]
 
         if failed:
-            # yield event.plain_result(f"首次下载完成，但有 {len(failed)} 个页面失败，正在重试...")
+            await event.send(event.plain_result(f"首次下载完成，但有 {len(failed)} 个页面失败，正在重试..."))
             retry_results = await self.retry_failed_downloads(event, session, failed)
 
             retry_successful = [r for r in retry_results if r.get("success")]
@@ -190,10 +190,10 @@ class Downloader:
             successful.extend(retry_successful)
             failed = retry_failed
 
-        # if failed:
-            # yield event.plain_result(f"下载完成，但仍有 {len(failed)} 个页面失败")
-        # else:
-            # yield event.plain_result("所有页面下载成功")
+        if failed:
+            await event.send(event.plain_result(f"下载完成，但仍有 {len(failed)} 个页面失败"))
+        else:
+            await event.send(event.plain_result("所有页面下载成功"))
 
         return False
 
