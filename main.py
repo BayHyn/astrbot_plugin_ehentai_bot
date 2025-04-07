@@ -35,7 +35,7 @@ class EHentaiBot(Star):
         
     @filter.command("查eh")
     async def search_gallery(self, event: AstrMessageEvent, cleaned_text: str):
-        
+        event.send(event.plain_result(event.message_str))
         defaults = {
             "min_rating": 2,
             "min_pages": 1,
