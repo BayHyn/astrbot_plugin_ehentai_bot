@@ -108,7 +108,7 @@ class MessageAdapter:
         return folder_id
 
     async def upload_file(self, event: AstrMessageEvent, path: str, name: str, folder_name: str = '/') -> Dict[str, Any]:
-        # yield event.plain_result(f"发送 {name} 中，请稍候...")
+        await event.send(event.plain_result(f"发送 {name} 中，请稍候..."))
 
         all_files = os.listdir(path)
         pattern = re.compile(rf"^{re.escape(name)}(?: part \d+)?\.pdf$")
