@@ -32,7 +32,8 @@ class EHentaiBot(Star):
     @staticmethod
     def parse_command(message: str) -> List[str]:
         return [p for p in message.split(' ') if p][1:]
-
+        
+    @filter.command("查eh")
     async def search_gallery(self, event: AstrMessageEvent, cleaned_text: str):
         
         defaults = {
@@ -42,6 +43,7 @@ class EHentaiBot(Star):
         }
         
         try:
+            print(cleaned_text)
             args = self.parse_command(cleaned_text)
             if not args:
                 await self.eh_helper(event)
@@ -77,6 +79,7 @@ class EHentaiBot(Star):
                 return
     
             results_ui = self.helpers.get_search_results(search_results)
+            print(results_ui)
             yield event.plain_result(results_ui)
         
         except ValueError as e:
