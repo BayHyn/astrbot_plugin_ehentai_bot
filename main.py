@@ -43,6 +43,7 @@ class EHentaiBot(Star):
         }
         
         try:
+            print(event.message_str)
             print(cleaned_text)
             args = self.parse_command(cleaned_text)
             if not args:
