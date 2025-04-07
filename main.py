@@ -33,7 +33,7 @@ class EHentaiBot(Star):
     def parse_command(message: str) -> List[str]:
         return [p for p in message.split(' ') if p][1:]
         
-    @filter.command("查eh")
+    @filter.command("搜eh")
     async def search_gallery(self, event: AstrMessageEvent):
         defaults = {
             "min_rating": 2,
@@ -91,7 +91,7 @@ class EHentaiBot(Star):
     
     @filter.command("看eh")
     async def download_gallery(self, event: AstrMessageEvent):
-        cleaned_text = event.message_str
+        cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
 
         image_folder = Path(self.config['output']['image_folder'])
         pdf_folder = Path(self.config['output']['pdf_folder'])
