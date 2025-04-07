@@ -111,7 +111,7 @@ class EHentaiBot(Star):
                 return
 
             pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/\d{7}/[a-f0-9]{10}/$')
-            if not pattern.match(args):
+            if not pattern.match(args[0]):
                 await event.send(event.plain_result("画廊链接异常，请重试..."))
                 return
 
