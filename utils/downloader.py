@@ -1,5 +1,4 @@
 from astrbot.api.event import AstrMessageEvent
-from .message_adapter import MessageAdapter
 from typing import List, Dict, Any, Optional, Tuple
 import os
 import re
@@ -7,20 +6,23 @@ import asyncio
 import aiohttp
 import aiofiles
 import random
+import glob
+import math
+import img2pdf
 import logging
 from pathlib import Path
 from natsort import natsorted
 from PIL import Image
+from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
 
 logger = logging.getLogger(__name__)
 
 
 class Downloader:
-    def __init__(self, config: Dict[str, Any], uploader: Any, parser: Any, helpers: Any):
+    def __init__(self, config: Dict[str, Any], uploader: Any, parser: Any):
         self.config = config
         self.uploader = uploader
         self.parser = parser
-        self.helpers = helpers
         self.semaphore = asyncio.Semaphore(self.config['request']['concurrency'])
         self.gallery_title = "output"
         Path(self.config['output']['image_folder']).mkdir(parents=True, exist_ok=True)
@@ -182,7 +184,7 @@ class Downloader:
 
         if failed:
             await event.send(event.plain_result(f"首次下载完成，但有 {len(failed)} 个页面失败，正在重试..."))
-            retry_results = await self.retry_failed_downloads(event, session, failed)
+            retry_results = await self.retry_failed_downloads(session, failed)
 
             retry_successful = [r for r in retry_results if r.get("success")]
             retry_failed = [r for r in retry_results if not r.get("success")]
@@ -197,7 +199,7 @@ class Downloader:
 
         return False
 
-    async def retry_failed_downloads(self, event: AstrMessageEvent, session: aiohttp.ClientSession,
+    async def retry_failed_downloads(self, session: aiohttp.ClientSession,
                                      failed_items: list) -> list:
         if not failed_items:
             return []
@@ -224,18 +226,45 @@ class Downloader:
 
         return retry_results
 
+    async def merge_images_to_pdf(self, event: AstrMessageEvent, gallery_title: str) -> str:
+        await event.send(event.plain_result("正在将图片合并为pdf文件，请稍候..."))
+        image_files = natsorted(glob.glob(str(Path(self.config['output']['image_folder']) / "*.jpg")))
+        if not image_files:
+            logger.warning("没有可用的图片文件")
+        
+        pdf_dir = Path(self.config['output']['pdf_folder'])
+        max_pages = self.config['output']['max_pages_per_pdf']
+        
+        if 0 < max_pages < len(image_files):
+            total = math.ceil(len(image_files) / max_pages)
+            for i in range(total):
+                batch = image_files[i * max_pages: (i + 1) * max_pages]
+                output_path = pdf_dir / f"{gallery_title} part {i + 1}.pdf"
+                with open(output_path, "wb") as f:
+                    f.write(img2pdf.convert(batch))
+                logger.info(f"生成PDF: {output_path.name}")
+        else:
+            output_path = pdf_dir / f"{gallery_title}.pdf"
+            with open(output_path, "wb") as f:
+                f.write(img2pdf.convert(image_files))
+            logger.info(f"生成PDF: {output_path.name}")
+            
     async def crawl_ehentai(self, search_term: str, min_rating: int = 0, min_pages: int = 0, target_page: int = 1) -> \
     List[Dict[str, Any]]:
         base_url = f"https://{self.config['request']['website']}.org/"
         search_params = {'f_search': search_term, 'f_srdd': min_rating, 'f_spf': min_pages, 'range': target_page}
-        search_url = self.helpers.build_search_url(base_url, search_params)
+        parsed_url = urlparse(base_url)
+        query = parse_qs(parsed_url.query)
+        query.update(search_params)
+        new_query = urlencode(query, doseq=True)
+        search_url = urlunparse(parsed_url._replace(query=new_query))
 
         results = []
 
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
             html = await self.fetch_with_retry(session, search_url)
             if html:
-                results = self.parser.parse_gallery_from_html(html, self.helpers)
+                results = self.parser.parse_gallery_from_html(html)
 
         if not results:
             results.append(f"未找到关键词为 {search_term} 的相关画廊")
