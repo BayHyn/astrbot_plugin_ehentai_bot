@@ -1,6 +1,6 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
-from astrbot.api import logger
+# from astrbot.api import logger
 from .utils.config_manager import load_config
 from .utils.downloader import Downloader
 from .utils.html_parser import HTMLParser
