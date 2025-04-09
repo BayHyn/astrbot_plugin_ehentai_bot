@@ -120,9 +120,8 @@ class MessageAdapter:
         if not files:
             raise FileNotFoundError("未找到符合命名的文件")
 
-        is_private = event.is_private_chat()
-        target_id = event.get_sender_id() if is_private else event.get_group_id()
-
+        is_private = ctx.event.launcher_type == "person"
+        target_id = ctx.event.sender_id if is_private else ctx.event.launcher_id
         url_type = "upload_private_file" if is_private else "upload_group_file"
         url = f"http://{self.http_host}:{self.http_port}/{url_type}"
 
