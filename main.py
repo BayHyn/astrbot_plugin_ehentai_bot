@@ -40,6 +40,7 @@ class EHentaiBot(Star):
         }
 
         try:
+            cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
             args = self.parse_command(cleaned_text)
             if not args:
                 await self.eh_helper(event)
@@ -120,6 +121,7 @@ class EHentaiBot(Star):
             os.remove(f)
 
         try:
+            cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
             args = self.parse_command(cleaned_text)
             if len(args) != 1:
                 await self.eh_helper(event)
