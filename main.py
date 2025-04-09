@@ -17,7 +17,7 @@ from typing import List
 logger = logging.getLogger(__name__)
 
 
-@register("ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "2.0")
+@register("ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "2.2")
 class EHentaiBot(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -81,7 +81,7 @@ class EHentaiBot(Star):
             search_cache_folder = Path(self.config['output']['search_cache_folder'])
             search_cache_folder.mkdir(exist_ok=True, parents=True)
 
-            cache_file = search_cache_folder / f"{event.event.sender_id}.json"
+            cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
             with open(cache_file, 'w', encoding='utf-8') as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
@@ -130,7 +130,7 @@ class EHentaiBot(Star):
 
             if not pattern.match(url):
                 if url.isdigit() and int(url) > 0:
-                    cache_file = search_cache_folder / f"{event.event.sender_id}.json"
+                    cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
                     if cache_file.exists():
                         with open(cache_file, 'r', encoding='utf-8') as f:
                             cache_data = json.load(f)
