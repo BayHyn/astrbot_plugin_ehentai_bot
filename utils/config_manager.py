@@ -31,7 +31,7 @@ def parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
     }
 
 
-def load_config(config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
+def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     if config_path is None:
         config_path = Path(__file__).parent.parent / "config.yaml"
 
