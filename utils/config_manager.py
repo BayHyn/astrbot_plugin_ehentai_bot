@@ -33,54 +33,85 @@ def parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
 
 def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     if config_path is None:
-        config_path = Path(__file__).parent.parent / "config.yaml"
-
+        yaml_path = Path(__file__).parent.parent / "config.yaml"
+    else:
+        yaml_path = Path(config_path)
+    
+    yaml_config = {}
     try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f) or {}
-
-        website = config.setdefault('website', 'e-hentai')
-        cookies = config.setdefault('cookies', {
-            "ipb_member_id": "",
-            "ipb_pass_hash": "",
-            "igneous": ""
-        })
-
-        config_updated = False
+        if yaml_path.exists():
+            with open(yaml_path, 'r', encoding='utf-8') as f:
+                yaml_config = yaml.safe_load(f) or {}
+                logger.info(f"已加载YAML配置文件: {yaml_path}")
+        else:
+            logger.warning(f"YAML配置文件不存在: {yaml_path}, 将创建新文件")
+    except Exception as e:
+        logger.warning(f"加载YAML配置文件失败: {str(e)}")
+    
+    json_to_yaml_mapping = {
+        "platform_type": ["platform", "type"],
+        "platform_http_host": ["platform", "http_host"],
+        "platform_http_port": ["platform", "http_port"],
+        "platform_api_token": ["platform", "api_token"],
+        "request_headers_user_agent": ["request", "headers", "User-Agent"],
+        "request_website": ["request", "website"],
+        "request_cookies_ipb_member_id": ["request", "cookies", "ipb_member_id"],
+        "request_cookies_ipb_pass_hash": ["request", "cookies", "ipb_pass_hash"],
+        "request_cookies_igneous": ["request", "cookies", "igneous"],
+        "request_proxies": ["request", "proxies"],
+        "request_concurrency": ["request", "concurrency"],
+        "request_max_retries": ["request", "max_retries"],
+        "request_timeout": ["request", "timeout"],
+        "output_image_folder": ["output", "image_folder"],
+        "output_pdf_folder": ["output", "pdf_folder"],
+        "output_search_cache_folder": ["output", "search_cache_folder"],
+        "output_jpeg_quality": ["output", "jpeg_quality"],
+        "output_max_pages_per_pdf": ["output", "max_pages_per_pdf"]
+    }
+    
+    updates_needed = False
+    
+    for json_key, value in config.items():
+        if value == "" or value is None:
+            continue
+            
+        if json_key in json_to_yaml_mapping:
+            yaml_path_parts = json_to_yaml_mapping[json_key]
+            
+            current_yaml = yaml_config
+            for i, path_part in enumerate(yaml_path_parts[:-1]):
+                current_yaml = current_yaml.setdefault(path_part, {})
+            
+            key = yaml_path_parts[-1]
+            yaml_value = current_yaml.get(key)
+            
+            if yaml_value != value:
+                logger.info(f"发现配置差异: {'.'.join(yaml_path_parts)}={value} (YAML中为: {yaml_value})")
+                current_yaml[key] = value
+                updates_needed = True
+    
+    config_updated = False
+    if 'request' in yaml_config:
+        request = yaml_config['request']
+        website = request.get('website')
+        cookies = request.get('cookies', {})
+        
         if website == 'exhentai':
             if any(not cookies.get(key, '') for key in ["ipb_member_id", "ipb_pass_hash", "igneous"]):
-                config['website'] = 'e-hentai'
+                request['website'] = 'e-hentai'
                 config_updated = True
                 logger.warning("网站设置为里站exhentai但cookies不完整，已更换为表站e-hentai")
-
-        request_config = config.setdefault('request', {})
-        request_config.setdefault('headers', {'User-Agent': 'Mozilla/5.0'})
-        request_config.setdefault('concurrency', 5)
-        request_config.setdefault('max_retries', 10)
-        request_config.setdefault('timeout', 30)
-
-        proxy_str = request_config.get('proxies', '')
+        
+        proxy_str = request.get('proxies', '')
         proxy_config = parse_proxy_config(proxy_str)
-        request_config['proxy'] = proxy_config
-
-        output_config = config.setdefault('output', {})
-        output_config.setdefault('image_folder', './ehentai/tempImages')
-        output_config.setdefault('pdf_folder', './ehentai/pdf')
-        output_config.setdefault('search_cache_folder', './ehentai/searchCache')
-        output_config.setdefault('jpeg_quality', 85)
-        output_config.setdefault('max_pages_per_pdf', 200)
-
-        if config_updated:
-            with open(config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
-
-        return config
-    except FileNotFoundError:
-        logger.error(f"配置文件不存在: {config_path}")
-        raise
-    except yaml.YAMLError as e:
-        logger.error(f"配置文件格式错误: {str(e)}")
-        raise
-    except Exception as e:
-        logger.error(f"配置文件加载失败: {str(e)}")
-        raise
+        request['proxy'] = proxy_config
+    
+    if updates_needed or config_updated:
+        try:
+            with open(yaml_path, 'w', encoding='utf-8') as f:
+                yaml.dump(yaml_config, f, allow_unicode=True, default_flow_style=False)
+                logger.info(f"已更新YAML配置文件: {yaml_path}")
+        except Exception as e:
+            logger.error(f"写入YAML配置文件失败: {str(e)}")
+    
+    return yaml_config
