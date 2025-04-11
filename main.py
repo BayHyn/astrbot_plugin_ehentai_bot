@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 @register("ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "2.2")
 class EHentaiBot(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: dict):
         super().__init__(context)
-        self.config = load_config()
+        self.config = load_config(config)
         self.parser = HTMLParser()
         self.uploader = MessageAdapter(self.config)
         self.downloader = Downloader(self.config, self.uploader, self.parser)
