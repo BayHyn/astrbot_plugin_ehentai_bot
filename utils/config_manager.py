@@ -48,6 +48,30 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
     except Exception as e:
         logger.warning(f"加载YAML配置文件失败: {str(e)}")
     
+    int_fields = [
+        "platform_http_port",
+        "request_concurrency", 
+        "request_max_retries",
+        "request_timeout",
+        "output_jpeg_quality",
+        "output_max_pages_per_pdf"
+    ]
+    
+    processed_config = {}
+    for key, value in config.items():
+        if value == "" or value is None:
+            continue
+        
+        if key in int_fields:
+            try:
+                processed_config[key] = int(value)
+                logger.debug(f"已将 {key} 从 '{value}' 转换为整数: {processed_config[key]}")
+            except (ValueError, TypeError):
+                logger.warning(f"无法将 {key} 的值 '{value}' 转换为整数，已跳过此项")
+                continue
+        else:
+            processed_config[key] = value
+    
     json_to_yaml_mapping = {
         "platform_type": ["platform", "type"],
         "platform_http_host": ["platform", "http_host"],
@@ -71,10 +95,7 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
     
     updates_needed = False
     
-    for json_key, value in config.items():
-        if value == "" or value is None:
-            continue
-            
+    for json_key, value in processed_config.items():
         if json_key in json_to_yaml_mapping:
             yaml_path_parts = json_to_yaml_mapping[json_key]
             
@@ -84,6 +105,12 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
             
             key = yaml_path_parts[-1]
             yaml_value = current_yaml.get(key)
+            
+            if isinstance(yaml_value, int) and isinstance(value, str):
+                try:
+                    value = int(value)
+                except (ValueError, TypeError):
+                    pass
             
             if yaml_value != value:
                 logger.info(f"发现配置差异: {'.'.join(yaml_path_parts)}={value} (YAML中为: {yaml_value})")
@@ -115,3 +142,4 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
             logger.error(f"写入YAML配置文件失败: {str(e)}")
     
     return yaml_config
+    
