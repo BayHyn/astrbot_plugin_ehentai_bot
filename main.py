@@ -1,9 +1,9 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
-from utils.config_manager import load_config
-from utils.downloader import Downloader
-from utils.html_parser import HTMLParser
-from utils.message_adapter import MessageAdapter
+from .utils.config_manager import load_config
+from .utils.downloader import Downloader
+from .utils.html_parser import HTMLParser
+from .utils.message_adapter import MessageAdapter
 from pathlib import Path
 import os
 import re
