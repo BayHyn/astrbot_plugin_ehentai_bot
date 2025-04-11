@@ -32,25 +32,25 @@
   "request_website": {
     "description": "网站类型",
     "type": "string",
-    "hint": "表站: e-hentai | 里站: exhentai",
+    "hint": "表站: e-hentai | 里站: exhentai # 缺少有效cookie时请不要将website设置为exhentai",
     "default": "e-hentai"
   },
   "request_cookies_ipb_member_id": {
     "description": "Cookie: ipb_member_id",
     "type": "string",
-    "hint": "缺少有效cookie时请不要将website设置为exhentai",
+    "hint": "",
     "default": ""
   },
   "request_cookies_ipb_pass_hash": {
     "description": "Cookie: ipb_pass_hash",
     "type": "string",
-    "hint": "缺少有效cookie时请不要将website设置为exhentai",
+    "hint": "",
     "default": ""
   },
   "request_cookies_igneous": {
     "description": "Cookie: igneous",
     "type": "string",
-    "hint": "缺少有效cookie时请不要将website设置为exhentai",
+    "hint": "",
     "default": ""
   },
   "request_proxies": {
