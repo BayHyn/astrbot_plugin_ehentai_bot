@@ -64,8 +64,8 @@ https://github.com/drdon1234/astrbot_plugin_ehentai_bot
 
 1. **通过 WebUI 的插件管理面板设置（推荐）**
 - 打开 "AstrBot WebUI" -> "插件管理" -> 找到本插件 -> "操作" -> "插件配置":
-![image](https://github.com/user-attachments/assets/ddab732c-8a57-4e74-8e28-4d8b68467933)
-- 插件将优先使用WebUI界面的配置并写入本地配置文件
+![image](https://github.com/user-attachments/assets/3f6487f6-27c6-4624-8cb7-9a8179538298)
+- 插件将优先使用WebUI的配置并写入本地配置文件
 - 缺少有效配置项时请不要填入内容，缺省项默认从本地配置文件读取
 
 2. **通过插件本地目录的config.yaml文件设置**
