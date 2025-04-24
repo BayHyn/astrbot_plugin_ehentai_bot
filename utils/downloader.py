@@ -266,7 +266,4 @@ class Downloader:
             if html:
                 results = self.parser.parse_gallery_from_html(html)
 
-        if not results:
-            results.append(f"未找到关键词为 {search_term} 的相关画廊")
-
         return results
