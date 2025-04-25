@@ -27,11 +27,11 @@ class EHentaiBot(Star):
 
     @staticmethod
     def parse_command(message: str) -> List[str]:
-        return [p for p in message.split(' ') if p][1:]
+        cleaned_text = re.sub(r'@\S+\s*', '', message).strip()
+        return [p for p in cleaned_text.split(' ') if p][1:]
         
     @filter.command("搜eh")
-    async def search_gallery(self, event: AstrMessageEvent, cleaned_text: str):
-
+    async def search_gallery(self, event: AstrMessageEvent):
         defaults = {
             "min_rating": 2,
             "min_pages": 1,
@@ -39,8 +39,7 @@ class EHentaiBot(Star):
         }
 
         try:
-            cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
-            args = self.parse_command(cleaned_text)
+            args = self.parse_command(event.message_str)
             if not args:
                 await self.eh_helper(event)
                 return
@@ -49,9 +48,11 @@ class EHentaiBot(Star):
                 await event.send(event.plain_result("参数过多，最多支持4个参数：标签 评分 页数 页码"))
                 return
 
+            raw_tags = args[0]
             tags = re.sub(r'[，,+]+', ' ', args[0])
 
             params = defaults.copy()
+            params["tags"] = raw_tags
             param_names = ["min_rating", "min_pages", "target_page"]
 
             for i, (name, value) in enumerate(zip(param_names, args[1:]), 1):
@@ -74,14 +75,14 @@ class EHentaiBot(Star):
                 await event.send(event.plain_result("未找到符合条件的结果"))
                 return
 
-            cache_data = {}
+            cache_data = {"params": params}
             for idx, result in enumerate(search_results, 1):
                 cache_data[str(idx)] = result['gallery_url']
 
             search_cache_folder = Path(self.config['output']['search_cache_folder'])
             search_cache_folder.mkdir(exist_ok=True, parents=True)
 
-            cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
+            cache_file = search_cache_folder / f"{ctx.event.sender_id}.json"
             with open(cache_file, 'w', encoding='utf-8') as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
@@ -106,6 +107,8 @@ class EHentaiBot(Star):
         except Exception as e:
             logger.exception("搜索失败")
             await event.send(event.plain_result(f"搜索失败：{str(e)}"))
+
+    @filter.command("eh翻页")
     
     @filter.command("看eh")
     async def download_gallery(self, event: AstrMessageEvent, cleaned_text: str):
@@ -120,8 +123,7 @@ class EHentaiBot(Star):
             os.remove(f)
 
         try:
-            cleaned_text = re.sub(r'@\S+\s*', '', event.message_str).strip()
-            args = self.parse_command(cleaned_text)
+            args = self.parse_command(event.message_str)
             if len(args) != 1:
                 await self.eh_helper(event)
                 return
