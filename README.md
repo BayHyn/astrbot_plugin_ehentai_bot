@@ -135,7 +135,7 @@ pip install <module>
 
 ## Docker 部署注意事项
 
-如果您是 Docker 部署，请务必为消息平台容器挂载 PDF 文件所在的文件夹，否则消息平台将无法解析文件路径。
+如果您是 Docker 部署，请务必为消息平台容器挂载 PDF 文件所在的文件夹，否则消息平台将无法解析文件路径
 
 示例挂载方式(NapCat)：
 - 对 AstrBot：`/vol3/1000/dockerSharedFolder -> /app/sharedFolder`
