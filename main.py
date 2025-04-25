@@ -82,7 +82,7 @@ class EHentaiBot(Star):
             search_cache_folder = Path(self.config['output']['search_cache_folder'])
             search_cache_folder.mkdir(exist_ok=True, parents=True)
 
-            cache_file = search_cache_folder / f"{ctx.event.sender_id}.json"
+            cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
             with open(cache_file, 'w', encoding='utf-8') as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
@@ -109,7 +109,42 @@ class EHentaiBot(Star):
             await event.send(event.plain_result(f"搜索失败：{str(e)}"))
 
     @filter.command("eh翻页")
+    async def jump_to_page(self, event: AstrMessageEvent):
+        args = self.parse_command(event.message_str)
+        if len(args) != 1:
+            await event.send(event.plain_result("参数错误，翻页操作只需要一个参数（页码）"))
+            return
     
+        page_num = args[0]
+        if not page_num.isdigit() or int(page_num) < 1:
+            await event.send(event.plain_result("页码应该是大于0的整数"))
+            return
+    
+        search_cache_folder = Path(self.config['output']['search_cache_folder'])
+        cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
+    
+        if not cache_file.exists():
+            await event.send(event.plain_result("未找到搜索记录，请先使用'搜eh'命令"))
+            return
+    
+        with open(cache_file, 'r', encoding='utf-8') as f:
+            cache_data = json.load(f)
+    
+        if 'params' not in cache_data:
+            await event.send(event.plain_result("缓存文件中缺少必要参数信息，请使用'搜eh'命令重新搜索"))
+            return
+    
+        params = cache_data['params']
+        
+        if 'tags' not in params:
+            await event.send(event.plain_result("缓存文件中未找到关键词信息，无法跳转到指定页"))
+            return
+    
+        params['target_page'] = int(page_num)
+        event.message_str = f"搜eh {params['tags']} {params['min_rating']} {params['min_pages']} {params['target_page']}"
+    
+        await self.search_gallery(event)
+        
     @filter.command("看eh")
     async def download_gallery(self, event: AstrMessageEvent, cleaned_text: str):
         image_folder = Path(self.config['output']['image_folder'])
