@@ -47,7 +47,7 @@ https://github.com/drdon1234/astrbot_plugin_ehentai_bot
    
     `搜eh [关键词] [最低评分] [最少页数] [获取第几页的画廊列表]`
 
-3. 快速跳转：  
+3. 快速翻页：  
 `eh翻页 [获取第几页的画廊列表]`
 
 ### 可用的下载方式
