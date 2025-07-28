@@ -82,6 +82,7 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
         "request_cookies_ipb_member_id": ["request", "cookies", "ipb_member_id"],
         "request_cookies_ipb_pass_hash": ["request", "cookies", "ipb_pass_hash"],
         "request_cookies_igneous": ["request", "cookies", "igneous"],
+        "request_cookies_sk": ["request", "cookies", "sk"], 
         "request_proxies": ["request", "proxies"],
         "request_concurrency": ["request", "concurrency"],
         "request_max_retries": ["request", "max_retries"],
