@@ -13,7 +13,7 @@ import logging
 from pathlib import Path
 from natsort import natsorted
 from PIL import Image
-from urllib.parse import urlencode, urlparse, parse_qs, urlunparse
+from urllib.parse import urlencode, urlparse, parse_qs, urlunparse, urljoin
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +248,72 @@ class Downloader:
             with open(output_path, "wb") as f:
                 f.write(img2pdf.convert(image_files))
             logger.info(f"生成PDF: {output_path.name}")
+            
+    async def get_archive_url(self, session: aiohttp.ClientSession, gid: str, token: str) -> Optional[str]:
+        """获取画廊归档下载链接"""
+        website = self.config['request']['website']
+        base_url = f"https://{website}.org"
+        
+        # 获取归档页面
+        archive_url = f"{base_url}/archiver.php?gid={gid}&token={token}"
+        
+        proxy_conf = self.config['request'].get('proxy', {})
+        cookies = self.config['request']['cookies'] if website == 'exhentai' else None
+        
+        try:
+            async with session.post(
+                archive_url,
+                headers=self.config['request']['headers'],
+                proxy=proxy_conf.get('url'),
+                proxy_auth=proxy_conf.get('auth'),
+                timeout=aiohttp.ClientTimeout(total=self.config['request']['timeout']),
+                ssl=False,
+                cookies=cookies
+            ) as response:
+                response.raise_for_status()
+                html_content = await response.text()
+                
+                # 请求下载原始归档
+                async with session.post(
+                    archive_url,
+                    headers=self.config['request']['headers'],
+                    proxy=proxy_conf.get('url'),
+                    proxy_auth=proxy_conf.get('auth'),
+                    timeout=aiohttp.ClientTimeout(total=self.config['request']['timeout']),
+                    ssl=False,
+                    cookies=cookies,
+                    data={
+                        "dltype": "org",
+                        "dlcheck": "Download+Original+Archive",
+                    }
+                ) as dl_response:
+                    dl_response.raise_for_status()
+                    dl_html = await dl_response.text()
+                    
+                    # 提取下载链接
+                    match = re.search(r'document\.location = "(.*?)";', dl_html, re.DOTALL)
+                    if not match:
+                        return None
+                        
+                    d_url = match.group(1)
+                    
+                    # 清除会话
+                    await session.post(
+                        archive_url,
+                        headers=self.config['request']['headers'],
+                        proxy=proxy_conf.get('url'),
+                        proxy_auth=proxy_conf.get('auth'),
+                        timeout=aiohttp.ClientTimeout(total=self.config['request']['timeout']),
+                        ssl=False,
+                        cookies=cookies,
+                        data={"invalidate_sessions": "1"}
+                    )
+                    
+                    # 返回不会自动开始下载的链接
+                    return f"{d_url.removesuffix('?autostart=1')}"
+        except Exception as e:
+            logger.error(f"获取归档链接失败: {str(e)}")
+            return None
             
     async def crawl_ehentai(self, search_term: str, min_rating: int = 0, min_pages: int = 0, target_page: int = 1) -> \
     List[Dict[str, Any]]:

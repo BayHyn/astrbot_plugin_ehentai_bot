@@ -198,14 +198,72 @@ class EHentaiBot(Star):
             logger.exception("下载失败")
             await event.send(event.plain_result(f"下载失败：{str(e)}"))
 
+    @filter.command("归档eh")
+    async def archive_gallery(self, event: AstrMessageEvent):
+        search_cache_folder = Path(self.config['output']['search_cache_folder'])
+        search_cache_folder.mkdir(exist_ok=True, parents=True)
+
+        try:
+            args = self.parse_command(event.message_str)
+            if len(args) != 1:
+                await event.send(event.plain_result("参数错误，归档操作只需要一个参数（画廊链接或搜索结果序号）"))
+                return
+
+            url = args[0]
+            pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/(\d{7})/([a-f0-9]{10})/?$')
+
+            match = pattern.match(url)
+            if not match:
+                if url.isdigit() and int(url) > 0:
+                    cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
+                    if cache_file.exists():
+                        with open(cache_file, 'r', encoding='utf-8') as f:
+                            cache_data = json.load(f)
+
+                        if url in cache_data:
+                            url = cache_data[url]
+                            await event.send(event.plain_result(f"正在获取画廊链接: {url}"))
+                        else:
+                            await event.send(event.plain_result(f"未找到索引为 {url} 的画廊"))
+                            return
+                    else:
+                        await event.send(event.plain_result(f"未找到搜索记录，请先使用'搜eh'命令"))
+                        return
+                else:
+                    await event.send(event.plain_result(f"画廊链接异常，请重试..."))
+                    return
+
+            # 重新匹配以获取 gid 和 token
+            match = pattern.match(url)
+            if not match:
+                await event.send(event.plain_result(f"无法解析画廊链接，请重试..."))
+                return
+
+            _, gid, token = match.groups()
+            
+            await event.send(event.plain_result("正在获取归档链接，请稍候..."))
+            
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+                download_url = await self.downloader.get_archive_url(session, gid, token)
+                
+                if download_url:
+                    await event.send(event.plain_result(f"归档链接获取成功，请尽快下载（链接仅能访问一次）：\n{download_url}"))
+                else:
+                    await event.send(event.plain_result("归档链接获取失败，请检查账号权限或重试"))
+
+        except Exception as e:
+            logger.exception("归档失败")
+            await event.send(event.plain_result(f"归档失败：{str(e)}"))
+
     @filter.command("eh")
     async def eh_helper(self, event: AstrMessageEvent):
         help_text = """eh指令帮助：
 [1] 搜索画廊: 搜eh [关键词] [最低评分（2-5，默认2）] [最少页数（默认1）] [获取第几页的画廊列表（默认1）]
 [2] 快速翻页: eh翻页 [获取第几页的画廊列表]
 [3] 下载画廊: 看eh [画廊链接/搜索结果序号]
-[4] 获取指令帮助: eh
-[5] 热重载config相关参数: 重载eh配置
+[4] 获取归档链接: 归档eh [画廊链接/搜索结果序号]
+[5] 获取指令帮助: eh
+[6] 热重载config相关参数: 重载eh配置
 
 可用的搜索方式:
 [1] 搜eh [关键词]
@@ -218,9 +276,14 @@ class EHentaiBot(Star):
 [1] 看eh [画廊链接]
 [2] 看eh [搜索结果序号]
 
+可用的归档方式：
+[1] 归档eh [画廊链接]
+[2] 归档eh [搜索结果序号]
+
 注意：
 [1] 搜索多关键词时请用以下符号连接`,` `，` `+`，关键词之间不要添加任何空格
-[2] 使用"eh翻页 [获取第几页的画廊列表]"和"看eh [搜索结果序号]"前确保你最近至少使用过一次"搜eh"命令（每个用户的缓存文件是独立的）"""
+[2] 使用"eh翻页 [获取第几页的画廊列表]"、"看eh [搜索结果序号]"和"归档eh [搜索结果序号]"前确保你最近至少使用过一次"搜eh"命令（每个用户的缓存文件是独立的）
+[3] 归档链接仅能访问一次，请尽快下载"""
         await event.send(event.plain_result(help_text))
 
     @filter.command("重载eh配置")
