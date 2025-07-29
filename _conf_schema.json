@@ -53,6 +53,12 @@
         "hint": "Cookie中的igneous值 默认值：无",
         "default": ""
     },
+    "request_cookies_sk": {
+        "description": "Cookie: sk",
+        "type": "string",
+        "hint": "Cookie中的sk值 默认值：无",
+        "default": ""
+    },
     "request_proxies": {
         "description": "代理设置",
         "type": "string",

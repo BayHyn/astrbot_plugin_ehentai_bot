@@ -122,6 +122,7 @@ class HTMLParser:
         results = []
         soup = BeautifulSoup(html_content, 'html.parser')
 
+        # 检查是否存在旧版表格布局
         if (table := soup.find('table', class_='itg')):
             for row in table.find_all('tr')[1:]:
                 cells = row.find_all('td')
@@ -155,6 +156,61 @@ class HTMLParser:
                             "pages": pages
                         })
                     except Exception as e:
-                        logger.warning(f"数据解析异常: {e}")
+                        logger.warning(f"数据解析异常(表格布局): {e}")
+        
+        # 检查是否存在新版网格布局
+        elif (grid := soup.find('div', class_='itg gld')):
+            for item in grid.find_all('div', class_='gl1t'):
+                try:
+                    # 获取画廊URL和标题
+                    link_element = item.find('a', href=True)
+                    gallery_url = link_element['href']
+                    
+                    # 获取标题
+                    title_element = item.find('div', class_='gl4t')
+                    raw_title = title_element.get_text(strip=True) if title_element else ""
+                    author, title = HTMLParser.extract_author_and_title(raw_title)
+                    
+                    # 获取封面URL
+                    img_element = item.find('img')
+                    cover_url = ""
+                    if img_element:
+                        cover_url = img_element.get('data-src') or img_element.get('src', '')
+                        cover_url = cover_url.replace('/w/', '/i/').split('?')[0]
+                    
+                    # 获取分类
+                    category_element = item.find('div', class_='cs')
+                    category = category_element.get_text(strip=True) if category_element else "Unknown"
+                    
+                    # 获取时间戳
+                    timestamp_element = item.find('div', id=re.compile(r'posted_\d+'))
+                    timestamp = timestamp_element.get_text(strip=True) if timestamp_element else time.strftime("%Y-%m-%d")
+                    
+                    # 获取评分
+                    rating_div = item.find('div', class_='ir')
+                    rating = 0.0
+                    if rating_div:
+                        x, y = HTMLParser.parse_background_position(rating_div.get('style', ''))
+                        rating = HTMLParser.calculate_rating(x, y)
+                    
+                    # 获取页数
+                    pages_element = item.find('div', string=re.compile(r'\d+\s*pages?'))
+                    pages = 0
+                    if pages_element:
+                        match = re.search(r'(\d+)\s*pages?', pages_element.get_text())
+                        pages = int(match.group(1)) if match else 0
+                    
+                    results.append({
+                        "title": title.strip(),
+                        "author": author.strip() if author else "Unknown",
+                        "category": category,
+                        "gallery_url": gallery_url,
+                        "cover_url": cover_url,
+                        "timestamp": timestamp,
+                        "rating": round(rating, 1),
+                        "pages": pages
+                    })
+                except Exception as e:
+                    logger.warning(f"数据解析异常(网格布局): {e}")
 
         return results
