@@ -16,7 +16,7 @@ from typing import List
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "2.3")
+@register("astrbot_plugin_ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "3.0")
 class EHentaiBot(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
