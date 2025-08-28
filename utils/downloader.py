@@ -127,7 +127,8 @@ class Downloader:
         if not main_html:
             raise ValueError("无法获取主页面内容")
 
-        self.gallery_title, last_page_number = self.parser.extract_gallery_info(main_html)
+        max_filename_length = self.config['output'].get('max_filename_length', 200)
+        self.gallery_title, last_page_number = self.parser.extract_gallery_info(main_html, max_filename_length)
 
         pdf_folder = self.config['output']['pdf_folder']
         all_files = os.listdir(pdf_folder)
@@ -232,6 +233,14 @@ class Downloader:
         if not image_files:
             logger.warning("没有可用的图片文件")
         
+        # 导入HTML解析器以使用文件名清理函数
+        from .html_parser import HTMLParser
+        
+        # 从配置中获取文件名长度限制，并为PDF后缀预留空间
+        max_filename_length = self.config['output'].get('max_filename_length', 200)
+        pdf_safe_length = max_filename_length - 20  # 为 " part XX.pdf" 预留空间
+        safe_title = HTMLParser.sanitize_filename(gallery_title, max_length=pdf_safe_length)
+        
         pdf_dir = Path(self.config['output']['pdf_folder'])
         max_pages = self.config['output']['max_pages_per_pdf']
         
@@ -239,15 +248,18 @@ class Downloader:
             total = math.ceil(len(image_files) / max_pages)
             for i in range(total):
                 batch = image_files[i * max_pages: (i + 1) * max_pages]
-                output_path = pdf_dir / f"{gallery_title} part {i + 1}.pdf"
+                output_path = pdf_dir / f"{safe_title} part {i + 1}.pdf"
                 with open(output_path, "wb") as f:
                     f.write(img2pdf.convert(batch))
                 logger.info(f"生成PDF: {output_path.name}")
         else:
-            output_path = pdf_dir / f"{gallery_title}.pdf"
+            output_path = pdf_dir / f"{safe_title}.pdf"
             with open(output_path, "wb") as f:
                 f.write(img2pdf.convert(image_files))
             logger.info(f"生成PDF: {output_path.name}")
+        
+        # 更新类变量以确保其他地方使用的是安全的文件名
+        self.gallery_title = safe_title
             
     async def get_archive_url(self, session: aiohttp.ClientSession, gid: str, token: str) -> Optional[str]:
         """获取画廊归档下载链接"""

@@ -112,5 +112,11 @@
         "type": "string",
         "hint": "超过此页数将分割为多个PDF文件 默认值：200",
         "default": ""
+    },
+    "output_max_filename_length": {
+        "description": "文件名最大长度限制",
+        "type": "string",
+        "hint": "文件名最大长度限制，超出部分将被截取 默认值：200",
+        "default": ""
     }
 }

@@ -23,6 +23,7 @@ output:
   search_cache_folder: "/app/sharedFolder/ehentai/searchCache" # 缓存每个用户搜索结果的路径
   jpeg_quality: 85 # 图片质量，100为不压缩，85左右可以达到文件大小和图片质量的最佳平衡
   max_pages_per_pdf: 200 # 单个pdf文件最大页数
+  max_filename_length: 200 # 文件名最大长度限制，超出部分将被截取
 
 # 注意：
 # 如果你是docker部署，请务必为消息平台容器挂载pdf文件所在的文件夹，否则消息平台将无法解析文件路径

@@ -81,7 +81,47 @@ class HTMLParser:
         return None
 
     @staticmethod
-    def extract_gallery_info(html_content: str) -> Tuple[str, int]:
+    def sanitize_filename(filename: str, max_length: int = 200) -> str:
+        """
+        清理并截取文件名到安全长度
+        
+        Args:
+            filename: 原始文件名
+            max_length: 最大长度，默认200字符（考虑到不同文件系统的限制）
+        
+        Returns:
+            处理后的安全文件名
+        """
+        # 移除或替换禁用字符
+        forbidden_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', "'"]
+        for char in forbidden_chars:
+            filename = filename.replace(char, '-')
+        
+        # 移除连续的短横线和前后空格
+        filename = re.sub(r'-+', '-', filename).strip(' -')
+        
+        # 如果文件名为空，使用默认名称
+        if not filename:
+            filename = "output"
+        
+        # 截取到安全长度
+        if len(filename) > max_length:
+            # 尝试在单词边界处截取
+            truncated = filename[:max_length]
+            # 寻找最后一个空格或短横线来避免截断单词
+            last_space = max(truncated.rfind(' '), truncated.rfind('-'))
+            if last_space > max_length // 2:  # 如果找到的位置不会过度缩短文件名
+                filename = truncated[:last_space]
+            else:
+                filename = truncated
+            
+            # 确保不以短横线结尾
+            filename = filename.rstrip('-')
+        
+        return filename
+
+    @staticmethod
+    def extract_gallery_info(html_content: str, max_filename_length: int = 200) -> Tuple[str, int]:
         if not html_content:
             return None, 0
 
@@ -90,9 +130,8 @@ class HTMLParser:
         title_element = soup.select_one("#gn")
         title = title_element.text.strip() if title_element else "output"
 
-        forbidden_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', "'"]
-        for char in forbidden_chars:
-            title = title.replace(char, '-')
+        # 使用新的文件名清理函数，并传入配置的长度限制
+        title = HTMLParser.sanitize_filename(title, max_filename_length)
 
         pagination_row = soup.select_one("table.ptt > tr")
         if not pagination_row:

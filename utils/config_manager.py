@@ -54,7 +54,8 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
         "request_max_retries",
         "request_timeout",
         "output_jpeg_quality",
-        "output_max_pages_per_pdf"
+        "output_max_pages_per_pdf",
+        "output_max_filename_length"
     ]
     
     processed_config = {}
@@ -91,7 +92,8 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
         "output_pdf_folder": ["output", "pdf_folder"],
         "output_search_cache_folder": ["output", "search_cache_folder"],
         "output_jpeg_quality": ["output", "jpeg_quality"],
-        "output_max_pages_per_pdf": ["output", "max_pages_per_pdf"]
+        "output_max_pages_per_pdf": ["output", "max_pages_per_pdf"],
+        "output_max_filename_length": ["output", "max_filename_length"]
     }
     
     updates_needed = False
