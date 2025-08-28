@@ -191,8 +191,8 @@ class EHentaiBot(Star):
 
                 if not is_pdf_exist:
                     title = self.downloader.gallery_title
-                    await self.downloader.merge_images_to_pdf(event, title)
-                    await self.uploader.upload_file(event, self.config['output']['pdf_folder'], title)
+                    safe_title = await self.downloader.merge_images_to_pdf(event, title)
+                    await self.uploader.upload_file(event, self.config['output']['pdf_folder'], safe_title)
 
         except Exception as e:
             logger.exception("下载失败")

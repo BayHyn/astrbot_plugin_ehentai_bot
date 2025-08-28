@@ -260,6 +260,8 @@ class Downloader:
         
         # 更新类变量以确保其他地方使用的是安全的文件名
         self.gallery_title = safe_title
+        
+        return safe_title  # 返回使用的安全文件名
             
     async def get_archive_url(self, session: aiohttp.ClientSession, gid: str, token: str) -> Optional[str]:
         """获取画廊归档下载链接"""
