@@ -215,7 +215,7 @@ class HTMLParser:
                     cover_url = ""
                     if img_element:
                         cover_url = img_element.get('data-src') or img_element.get('src', '')
-                        cover_url = cover_url.replace('/w/', '/i/').split('?')[0]
+                        cover_url = cover_url.replace('/i/', '/w/').split('?')[0]
                     
                     # 获取分类
                     category_element = item.find('div', class_='cs')
