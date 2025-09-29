@@ -25,6 +25,9 @@ output:
   max_pages_per_pdf: 200 # 单个pdf文件最大页数
   max_filename_length: 200 # 文件名最大长度限制，超出部分将被截取
 
+features:
+  enable_formatted_message_search: true # 是否启用格式化消息搜索功能
+
 # 注意：
 # 如果你是docker部署，请务必为消息平台容器挂载pdf文件所在的文件夹，否则消息平台将无法解析文件路径
 #

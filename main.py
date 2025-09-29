@@ -433,29 +433,29 @@ class EHentaiBot(Star):
         """
         监听特定格式的消息，自动提取作者名和作品名，并拼接为搜索关键词进行搜索。
         """
+        # 检查是否启用格式化消息搜索功能
+        if not self.config.get("features", {}).get("enable_formatted_message_search", True):
+            return 
+            
         match = re.search(r"^(?:\[([^\]]+)\]|\(([^\)]+)\))\s*(.*)$", event.message_str)
         if not match:
-            return MessageEventResult.IGNORED
+            return
             
         author = match.group(1) if match.group(1) else match.group(2)
         title = match.group(3).strip()
 
-        # 移除作品名中可能存在的额外信息，例如[中国翻訳] (艦隊これくしょん -艦これ-)
+        # 移除作品名中可能存在的额外信息，例如[中国翻訳]
         title = re.sub(r'\[[^\]]+\]|\([^\)]+\)', '', title).strip()
 
         if not author or not title:
             logger.warning(f"未能从消息中提取有效的作者或作品名: {event.message_str}")
-            return MessageEventResult.IGNORED
+            return
 
         # 将空格替换为+
         search_query = f"{author.replace(' ', '+')}+{title.replace(' ', '+')}"
         
-        # 构造一个新的 AstrMessageEvent 来调用 search_gallery
-        # 注意：这里我们直接修改了 event.message_str，因为 search_gallery 会解析它
         event.message_str = f"搜eh {search_query}"
         
-        logger.info(f"检测到格式化消息，将自动搜索: {search_query}")
-        #await event.send(event.plain_result(f"检测到格式化消息，正在为您搜索: {search_query}"))
         await self.search_gallery(event)
         
         return
