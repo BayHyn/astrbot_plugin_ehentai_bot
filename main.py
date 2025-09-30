@@ -21,7 +21,7 @@ from PIL import Image as PILImage, ImageDraw
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "3.0")
+@register("astrbot_plugin_ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "3.2")
 class EHentaiBot(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
