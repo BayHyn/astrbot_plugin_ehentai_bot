@@ -1,6 +1,6 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
-from astrbot.api.message_components import Image, Plain
+from astrbot.api.message_components import Image, Plain, Nodes, Node
 from .utils.config_manager import load_config
 from .utils.downloader import Downloader
 from .utils.html_parser import HTMLParser
@@ -200,26 +200,28 @@ class EHentaiBot(Star):
             with open(cache_file, 'w', encoding='utf-8') as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
-            # 下载所有封面图片
-            covers = []
-            for result in search_results:
-                cover_url = result['cover_url']
-                cover = await self.download_thumbnail(cover_url)
-                covers.append(cover)
-
-            # 创建拼接图片
-            combined_image_path = self.create_combined_image(covers)
-            
             # 构建消息内容
             message_components = []
             
-            # 添加拼接后的封面图片
-            if combined_image_path:
-                message_components.append(Image(combined_image_path))
+            # 如果启用了封面图片下载，则下载并拼接封面图片
+            if self.config.get('features', {}).get('enable_cover_image_download', True):
+                # 下载所有封面图片
+                covers = []
+                for result in search_results:
+                    cover_url = result['cover_url']
+                    cover = await self.download_thumbnail(cover_url)
+                    covers.append(cover)
+
+                # 创建拼接图片
+                combined_image_path = self.create_combined_image(covers)
+                
+                # 添加拼接后的封面图片
+                if combined_image_path:
+                    message_components.append(Image(combined_image_path))
             
-            # 添加文字内容
+            # 构建搜索结果文本
             output = "搜索结果:\n"
-            output += "=" * 50 + "\n"
+            #output += "=" * 50 + "\n"
             for idx, result in enumerate(search_results, 1):
                 output += f"[{idx}] {result['title']}\n"
                 output += (
@@ -227,12 +229,19 @@ class EHentaiBot(Star):
                     f"评分: {result['rating']} | 上传时间: {result['timestamp']}\n"
                 )
                 output += f" 画廊链接: {result['gallery_url']}\n"
-                output += "-" * 80 + "\n"
+                #output += "-" * 80 + "\n"
 
-            message_components.append(Plain(output))
-            
-            # 发送消息
-            await event.send(MessageEventResult(message_components))
+            # 检查是否启用格式化消息搜索功能
+            if self.config.get('features', {}).get('enable_formatted_message_search', True):
+                # 使用转发消息格式发送搜索结果
+                combined_image_path = None
+                if self.config.get('features', {}).get('enable_cover_image_download', True) and covers:
+                    combined_image_path = self.create_combined_image(covers)
+                await self.send_formatted_search_results(event, output, search_results, combined_image_path)
+            else:
+                # 使用原有方式发送消息
+                message_components.append(Plain(output))
+                await event.send(MessageEventResult(message_components))
 
         except ValueError as e:
             logger.exception("参数解析失败")
@@ -241,6 +250,71 @@ class EHentaiBot(Star):
         except Exception as e:
             logger.exception("搜索失败")
             await event.send(event.plain_result(f"搜索失败：{str(e)}"))
+
+    async def send_formatted_search_results(self, event, result_text, search_results, combined_image_path=None):
+        """发送格式化搜索结果（转发消息格式）"""
+        def split_text_by_length(text, max_length=2000):
+            """将文本按最大长度分割"""
+            parts = []
+            while text:
+                if len(text) <= max_length:
+                    parts.append(text)
+                    break
+                split_pos = text.rfind('\n', 0, max_length)
+                if split_pos == -1:
+                    split_pos = max_length
+                parts.append(text[:split_pos])
+                text = text[split_pos:].lstrip()
+            return parts
+        
+        text_parts = split_text_by_length(result_text)
+        sender_name = "图片搜索bot"
+        sender_id = event.get_self_id()
+        try:
+            sender_id = int(sender_id)
+        except Exception:
+            pass
+        
+        # 构建转发消息节点列表
+        nodes_list = []
+        
+        # 如果有封面图片，创建图片节点
+        if combined_image_path:
+            # 应用规避审查机制
+            try:
+                from PIL import Image as PILImage
+                image = PILImage.open(combined_image_path)
+                self.add_random_blocks(image)
+                # 保存处理后的图片
+                processed_image_path = combined_image_path.replace('.jpg', '_processed.jpg')
+                image.save(processed_image_path, quality=85)
+                combined_image_path = processed_image_path
+            except Exception as e:
+                logger.warning(f"图片规避审查处理失败: {str(e)}")
+            
+            image_node = Node(
+                name=sender_name,
+                uin=sender_id,
+                content=[Image(combined_image_path)]
+            )
+            nodes_list.append(image_node)
+        
+        # 创建文本结果节点
+        for i, part in enumerate(text_parts):
+            text_node = Node(
+                name=sender_name,
+                uin=sender_id,
+                content=[Plain(f"[  搜索结果 {i + 1} / {len(text_parts)}  ]\n\n{part}")]
+            )
+            nodes_list.append(text_node)
+        
+        # 一次性发送所有节点
+        if nodes_list:
+            nodes = Nodes(nodes_list)
+            try:
+                await event.send(event.chain_result([nodes]))
+            except Exception as e:
+                await event.send(event.plain_result(f"发送搜索结果失败: {str(e)}"))
 
     @filter.command("eh翻页")
     async def jump_to_page(self, event: AstrMessageEvent):

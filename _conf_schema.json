@@ -124,5 +124,11 @@
         "type": "bool",
         "hint": "是否启用格式化消息搜索功能 默认值：true",
         "default": true
+    },
+    "features_enable_cover_image_download": {
+        "description": "启用封面图片下载功能",
+        "type": "bool",
+        "hint": "是否下载拼接封面图片 默认值：true",
+        "default": true
     }
 }
