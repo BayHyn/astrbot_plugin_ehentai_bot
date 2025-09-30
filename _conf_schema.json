@@ -130,5 +130,11 @@
         "type": "bool",
         "hint": "是否下载拼接封面图片 默认值：true",
         "default": true
+    },
+    "features_search_results_limit": {
+        "description": "搜索结果显示数量限制",
+        "type": "string",
+        "hint": "搜索结果最大显示数量 默认值：25",
+        "default": ""
     }
 }

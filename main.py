@@ -9,6 +9,7 @@ from pathlib import Path
 import os
 import re
 import aiohttp
+import asyncio
 import glob
 import logging
 import json
@@ -53,7 +54,7 @@ class EHentaiBot(Star):
             return None
 
     def create_combined_image(self, images):
-        """将多个封面图片拼接成一张图片"""
+        """将多个封面图片拼接成一张图片，按五张一排排列"""
         if not images:
             return None
 
@@ -62,9 +63,10 @@ class EHentaiBot(Star):
         if not valid_images:
             return None
 
-        # 设置统一的目标高度
-        target_height = 800  # 统一高度
+        # 设置每张图片的目标高度
+        target_height = 800  # 降低高度以适应多行排列
         padding = 10  # 图片间距
+        images_per_row = 5  # 每行图片数量
         
         # 计算每张图片按比例缩放后的宽度
         scaled_widths = []
@@ -75,22 +77,55 @@ class EHentaiBot(Star):
             scaled_width = int((width * target_height) / height)
             scaled_widths.append(scaled_width)
         
-        # 计算总宽度（包含间距）
-        total_width = sum(scaled_widths) + (len(valid_images) - 1) * padding
+        # 计算每行的最大宽度
+        rows = []
+        current_row_widths = []
+        current_row_total = 0
+        
+        for i, scaled_width in enumerate(scaled_widths):
+            if len(current_row_widths) < images_per_row:
+                current_row_widths.append(scaled_width)
+                current_row_total += scaled_width
+            else:
+                rows.append((current_row_widths, current_row_total))
+                current_row_widths = [scaled_width]
+                current_row_total = scaled_width
+        
+        if current_row_widths:
+            rows.append((current_row_widths, current_row_total))
+        
+        # 计算总宽度（取最宽的行）
+        max_row_width = max(row_total for _, row_total in rows) if rows else 0
+        total_width = max_row_width + (images_per_row - 1) * padding
+        
+        # 计算总高度
+        total_height = len(rows) * target_height + (len(rows) - 1) * padding
         
         # 创建新图片
-        combined_image = PILImage.new('RGB', (total_width, target_height), (255, 255, 255))
+        combined_image = PILImage.new('RGB', (total_width, total_height), (255, 255, 255))
 
         # 拼接图片
-        x_offset = 0
-        for img, scaled_width in zip(valid_images, scaled_widths):
-            # 调整图片大小，保持比例
-            img = img.convert('RGB')
-            img = img.resize((scaled_width, target_height), PILImage.Resampling.LANCZOS)
+        y_offset = 0
+        image_index = 0
+        for row_widths, row_total in rows:
+            x_offset = 0
             
-            # 粘贴到新图片上
-            combined_image.paste(img, (x_offset, 0))
-            x_offset += scaled_width + padding
+            # 计算该行的起始x位置（居中显示）
+            row_start_x = (total_width - (row_total + (len(row_widths) - 1) * padding)) // 2
+            x_offset = row_start_x
+            
+            for scaled_width in row_widths:
+                img = valid_images[image_index]
+                # 调整图片大小，保持比例
+                img = img.convert('RGB')
+                img = img.resize((scaled_width, target_height), PILImage.Resampling.LANCZOS)
+                
+                # 粘贴到新图片上
+                combined_image.paste(img, (x_offset, y_offset))
+                x_offset += scaled_width + padding
+                image_index += 1
+            
+            y_offset += target_height + padding
 
         # 添加随机色块以规避图片审查
         self.add_random_blocks(combined_image)
@@ -189,6 +224,11 @@ class EHentaiBot(Star):
                 await event.send(event.plain_result("未找到符合条件的结果"))
                 return
 
+            # 应用搜索结果显示数量限制
+            search_results_limit = int(self.config.get('features', {}).get('search_results_limit', '25'))
+            if len(search_results) > search_results_limit:
+                search_results = search_results[:search_results_limit]
+
             cache_data = {"params": params}
             for idx, result in enumerate(search_results, 1):
                 cache_data[str(idx)] = result['gallery_url']
@@ -205,12 +245,17 @@ class EHentaiBot(Star):
             
             # 如果启用了封面图片下载，则下载并拼接封面图片
             if self.config.get('features', {}).get('enable_cover_image_download', True):
-                # 下载所有封面图片
+                # 多线程下载所有封面图片
                 covers = []
+                download_tasks = []
                 for result in search_results:
                     cover_url = result['cover_url']
-                    cover = await self.download_thumbnail(cover_url)
-                    covers.append(cover)
+                    download_tasks.append(self.download_thumbnail(cover_url))
+                
+                # 并发执行所有下载任务
+                covers = await asyncio.gather(*download_tasks, return_exceptions=True)
+                # 过滤掉下载失败的图片
+                covers = [cover for cover in covers if not isinstance(cover, Exception) and cover is not None]
 
                 # 创建拼接图片
                 combined_image_path = self.create_combined_image(covers)
