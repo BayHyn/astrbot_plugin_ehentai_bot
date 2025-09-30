@@ -55,7 +55,13 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
         "request_timeout",
         "output_jpeg_quality",
         "output_max_pages_per_pdf",
-        "output_max_filename_length"
+        "output_max_filename_length",
+        "features_search_results_limit"
+    ]
+    
+    bool_fields = [
+        "features_enable_formatted_message_search",
+        "features_enable_cover_image_download"
     ]
     
     processed_config = {}
@@ -70,6 +76,12 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
             except (ValueError, TypeError):
                 logger.warning(f"无法将 {key} 的值 '{value}' 转换为整数，已跳过此项")
                 continue
+        elif key in bool_fields:
+            if isinstance(value, str):
+                processed_config[key] = value.lower() in ('true', '1', 'yes', 'on')
+            else:
+                processed_config[key] = bool(value)
+            logger.debug(f"已将 {key} 从 '{value}' 转换为布尔值: {processed_config[key]}")
         else:
             processed_config[key] = value
     
@@ -93,7 +105,10 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
         "output_search_cache_folder": ["output", "search_cache_folder"],
         "output_jpeg_quality": ["output", "jpeg_quality"],
         "output_max_pages_per_pdf": ["output", "max_pages_per_pdf"],
-        "output_max_filename_length": ["output", "max_filename_length"]
+        "output_max_filename_length": ["output", "max_filename_length"],
+        "features_enable_formatted_message_search": ["features", "enable_formatted_message_search"],
+        "features_enable_cover_image_download": ["features", "enable_cover_image_download"],
+        "features_search_results_limit": ["features", "search_results_limit"]
     }
     
     updates_needed = False
