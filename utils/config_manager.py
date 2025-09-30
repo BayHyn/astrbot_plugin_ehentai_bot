@@ -55,11 +55,13 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
         "request_timeout",
         "output_jpeg_quality",
         "output_max_pages_per_pdf",
-        "output_max_filename_length"
+        "output_max_filename_length",
+        "features_search_results_limit"
     ]
     
     bool_fields = [
-        "features_enable_formatted_message_search"
+        "features_enable_formatted_message_search",
+        "features_enable_cover_image_download"
     ]
     
     processed_config = {}
@@ -104,7 +106,9 @@ def load_config(config: dict, config_path: Optional[Union[str, Path]] = None) ->
         "output_jpeg_quality": ["output", "jpeg_quality"],
         "output_max_pages_per_pdf": ["output", "max_pages_per_pdf"],
         "output_max_filename_length": ["output", "max_filename_length"],
-        "features_enable_formatted_message_search": ["features", "enable_formatted_message_search"]
+        "features_enable_formatted_message_search": ["features", "enable_formatted_message_search"],
+        "features_enable_cover_image_download": ["features", "enable_cover_image_download"],
+        "features_search_results_limit": ["features", "search_results_limit"]
     }
     
     updates_needed = False
