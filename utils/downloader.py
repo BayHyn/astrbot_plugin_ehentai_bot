@@ -28,22 +28,25 @@ class Downloader:
         Path(self.config['output']['image_folder']).mkdir(parents=True, exist_ok=True)
         Path(self.config['output']['pdf_folder']).mkdir(parents=True, exist_ok=True)
 
-    async def fetch_with_retry(self, session: aiohttp.ClientSession, url: str) -> Optional[str]:
+    def _prepare_request_params(self) -> Dict[str, Any]:
+        """准备通用请求参数"""
         proxy_conf = self.config['request'].get('proxy', {})
         cookies = self.config['request']['cookies'] if self.config['request']['website'] == 'exhentai' else None
+        return {
+            "headers": self.config['request']['headers'],
+            "proxy": proxy_conf.get('url'),
+            "proxy_auth": proxy_conf.get('auth'),
+            "timeout": aiohttp.ClientTimeout(total=self.config['request']['timeout']),
+            "ssl": False,
+            "cookies": cookies
+        }
 
+    async def fetch_with_retry(self, session: aiohttp.ClientSession, url: str) -> Optional[str]:
+        params = self._prepare_request_params()
         for attempt in range(self.config['request']['max_retries']):
             try:
                 async with self.semaphore:
-                    async with session.get(
-                            url,
-                            headers=self.config['request']['headers'],
-                            proxy=proxy_conf.get('url'),
-                            proxy_auth=proxy_conf.get('auth'),
-                            timeout=aiohttp.ClientTimeout(total=self.config['request']['timeout']),
-                            ssl=False,
-                            cookies=cookies
-                    ) as response:
+                    async with session.get(url, **params) as response:
                         response.raise_for_status()
                         return await response.text()
             except asyncio.TimeoutError:
@@ -60,21 +63,11 @@ class Downloader:
 
     async def download_image_with_fixed_number(self, session: aiohttp.ClientSession, img_url: str,
                                                image_number: int) -> bool:
-        proxy_conf = self.config['request'].get('proxy', {})
-        cookies = self.config['request']['cookies'] if self.config['request']['website'] == 'exhentai' else None
-
+        params = self._prepare_request_params()
         for attempt in range(self.config['request']['max_retries']):
             try:
                 async with self.semaphore:
-                    async with session.get(
-                            img_url,
-                            headers=self.config['request']['headers'],
-                            proxy=proxy_conf.get('url'),
-                            proxy_auth=proxy_conf.get('auth'),
-                            timeout=aiohttp.ClientTimeout(total=self.config['request']['timeout']),
-                            ssl=False,
-                            cookies=cookies
-                    ) as response:
+                    async with session.get(img_url, **params) as response:
                         response.raise_for_status()
                         content = await response.read()
 

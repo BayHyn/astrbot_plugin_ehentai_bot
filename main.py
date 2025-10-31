@@ -15,8 +15,8 @@ import logging
 import json
 import io
 import tempfile
-from typing import List
-from PIL import Image as PILImage, ImageDraw
+from typing import List, Optional
+from PIL import Image as PILImage, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
 
@@ -30,58 +30,203 @@ class EHentaiBot(Star):
         self.uploader = MessageAdapter(self.config)
         self.downloader = Downloader(self.config, self.uploader, self.parser)
 
+    def add_number_to_image(self, image: PILImage.Image, number: int) -> PILImage.Image:
+        """为单张图片添加数字序号"""
+        image = image.convert("RGBA")
+        txt_layer = PILImage.new("RGBA", image.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(txt_layer)
+
+        try:
+            font = ImageFont.truetype("msyh.ttc", size=60)
+        except IOError:
+            try:
+                font = ImageFont.truetype("arial.ttf", size=60)
+            except IOError:
+                font = ImageFont.load_default()
+
+        text = str(number)
+
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+        rect_height = text_height + 20
+        rect_pos = (0, image.height - rect_height, image.width, image.height)
+        draw.rectangle(rect_pos, fill=(0, 0, 0, 150))
+
+        text_x = (image.width - text_width) / 2
+        text_y = image.height - rect_height + 10
+        draw.text((text_x, text_y), text, font=font, fill=(255, 255, 255, 255))
+
+        out = PILImage.alpha_composite(image, txt_layer)
+        return out.convert("RGB")
+
+    @staticmethod
+    def split_text_by_length(text: str, max_length: int = 4000) -> List[str]:
+        result = []
+        label = '画廊链接'
+        start = 0
+        last_link_end = -1
+        last_newline = -1
+        for i, ch in enumerate(text):
+            if ch == '\n':
+                last_newline = i
+            if text.startswith(label, i - len(label) + 1):
+                next_newline_pos = text.find('\n', i)
+                if next_newline_pos != -1:
+                    last_link_end = next_newline_pos + 1
+                else:
+                    last_link_end = len(text)
+            if i - start + 1 >= max_length:
+                cut = last_link_end if last_link_end > start else (
+                    last_newline + 1 if last_newline >= start else start + max_length)
+                result.append(text[start:cut])
+                start = cut
+                last_link_end = -1
+                last_newline = -1
+        if start < len(text):
+            result.append(text[start:])
+        return result
+
+    async def _resolve_url_from_input(self, event: AstrMessageEvent, user_input: str) -> Optional[str]:
+        """从用户输入（URL或序号）解析画廊URL"""
+        search_cache_folder = Path(self.config['output']['search_cache_folder'])
+        pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/\d{7}/[a-f0-9]{10}/?$')
+
+        if pattern.match(user_input):
+            return user_input
+
+        if user_input.isdigit() and int(user_input) > 0:
+            cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
+            if not cache_file.exists():
+                await event.send(event.plain_result("未找到搜索记录，请先使用'搜eh'命令"))
+                return None
+
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+
+            if user_input in cache_data:
+                url = cache_data[user_input]
+                await event.send(event.plain_result(f"正在获取画廊链接: {url}"))
+                return url
+            else:
+                await event.send(event.plain_result(f"未找到索引为 {user_input} 的画廊"))
+                return None
+
+        await event.send(event.plain_result("输入的画廊链接或序号无效，请重试..."))
+        return None
+
     @staticmethod
     def parse_command(message: str) -> List[str]:
         cleaned_text = re.sub(r'@\S+\s*', '', message).strip()
         return [p for p in cleaned_text.split(' ') if p][1:]
-        
-    async def download_thumbnail(self, url):
+
+    async def download_thumbnail(self, url: str, session: aiohttp.ClientSession, semaphore: asyncio.Semaphore):
         """下载封面图片"""
         try:
+            # Prefer User-Agent from config, but keep image-specific headers
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Referer': 'https://e-hentai.org/',
+                'User-Agent': self.config.get('request', {}).get('headers', {}).get('User-Agent',
+                                                                                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'),
+                'Referer': f"https://{self.config.get('request', {}).get('website', 'e-hentai')}.org/",
                 'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
                 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
             }
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
+
+            request_config = self.config.get('request', {})
+            proxy_conf = request_config.get('proxy', {})
+            cookies = request_config.get('cookies') if request_config.get('website') == 'exhentai' else None
+            timeout = aiohttp.ClientTimeout(total=request_config.get('timeout', 30))
+            proxy = proxy_conf.get('url')
+            proxy_auth = proxy_conf.get('auth')
+
+            async with semaphore:
+                async with session.get(
+                        url,
+                        headers=headers,
+                        cookies=cookies,
+                        proxy=proxy,
+                        proxy_auth=proxy_auth,
+                        timeout=timeout,
+                        ssl=False
+                ) as response:
                     response.raise_for_status()
-                    # 将图片数据转换为PIL Image对象
                     return PILImage.open(io.BytesIO(await response.read()))
         except Exception as e:
-            logger.error(f"下载封面图片失败：{e}")
+            logger.warning(f"下载封面图片失败: {url} - {e}")
             return None
+
+    async def _download_thumbnail_with_tracking(self, url: str, session: aiohttp.ClientSession,
+                                                semaphore: asyncio.Semaphore):
+        """包装封面下载任务以进行跟踪"""
+        image = await self.download_thumbnail(url, session, semaphore)
+        if image:
+            return {"success": True, "image": image, "url": url}
+        else:
+            return {"success": False, "error": "Download failed", "url": url}
+
+    async def _download_covers_with_retry(self, search_results: List[dict]) -> List[PILImage.Image]:
+        """带重试机制的封面下载器"""
+        if not self.config.get('features', {}).get('enable_cover_image_download', True):
+            return []
+
+        concurrency = self.config.get('request', {}).get('concurrency', 5)
+        semaphore = asyncio.Semaphore(concurrency)
+
+        urls_to_download = [res['cover_url'] for res in search_results if res.get('cover_url')]
+        if not urls_to_download:
+            return []
+
+        async with aiohttp.ClientSession() as session:
+            # 首次尝试
+            tasks = [self._download_thumbnail_with_tracking(url, session, semaphore) for url in urls_to_download]
+            results = await asyncio.gather(*tasks)
+
+            successful_images = [r['image'] for r in results if r.get('success')]
+            failed_urls = [r['url'] for r in results if not r.get('success')]
+
+            # 重试逻辑
+            if failed_urls:
+                logger.info(f"首次封面下载有 {len(failed_urls)} 张失败，正在重试...")
+                await asyncio.sleep(1)  # 重试前短暂延迟
+
+                retry_tasks = [self._download_thumbnail_with_tracking(url, session, semaphore) for url in failed_urls]
+                retry_results = await asyncio.gather(*retry_tasks)
+
+                successful_images.extend([r['image'] for r in retry_results if r.get('success')])
+                final_failed_count = sum(1 for r in retry_results if not r.get('success'))
+
+                if final_failed_count > 0:
+                    logger.warning(f"封面下载重试后仍有 {final_failed_count} 张失败。")
+
+        return successful_images
 
     def create_combined_image(self, images):
         """将多个封面图片拼接成一张图片，按五张一排排列"""
         if not images:
             return None
 
-        # 过滤掉None值
         valid_images = [img for img in images if img is not None]
         if not valid_images:
             return None
 
-        # 设置每张图片的目标高度
-        target_height = 800  # 降低高度以适应多行排列
-        padding = 10  # 图片间距
-        images_per_row = 5  # 每行图片数量
-        
-        # 计算每张图片按比例缩放后的宽度
+        # 为每张图片添加编号
+        numbered_images = [self.add_number_to_image(img, i) for i, img in enumerate(valid_images, 1)]
+
+        target_height = 800
+        padding = 10
+        images_per_row = 5
+
         scaled_widths = []
-        for img in valid_images:
-            # 获取原始尺寸
+        for img in numbered_images:
             width, height = img.size
-            # 按高度等比例缩放
             scaled_width = int((width * target_height) / height)
             scaled_widths.append(scaled_width)
-        
-        # 计算每行的最大宽度
+
         rows = []
         current_row_widths = []
         current_row_total = 0
-        
+
         for i, scaled_width in enumerate(scaled_widths):
             if len(current_row_widths) < images_per_row:
                 current_row_widths.append(scaled_width)
@@ -90,51 +235,36 @@ class EHentaiBot(Star):
                 rows.append((current_row_widths, current_row_total))
                 current_row_widths = [scaled_width]
                 current_row_total = scaled_width
-        
+
         if current_row_widths:
             rows.append((current_row_widths, current_row_total))
-        
-        # 计算总宽度（取最宽的行）
+
         max_row_width = max(row_total for _, row_total in rows) if rows else 0
         total_width = max_row_width + (images_per_row - 1) * padding
-        
-        # 计算总高度
+
         total_height = len(rows) * target_height + (len(rows) - 1) * padding
-        
-        # 创建新图片
+
         combined_image = PILImage.new('RGB', (total_width, total_height), (255, 255, 255))
 
-        # 拼接图片
         y_offset = 0
         image_index = 0
         for row_widths, row_total in rows:
-            x_offset = 0
-            
-            # 计算该行的起始x位置（居中显示）
             row_start_x = (total_width - (row_total + (len(row_widths) - 1) * padding)) // 2
             x_offset = row_start_x
-            
+
             for scaled_width in row_widths:
-                img = valid_images[image_index]
-                # 调整图片大小，保持比例
+                img = numbered_images[image_index]
                 img = img.convert('RGB')
                 img = img.resize((scaled_width, target_height), PILImage.Resampling.LANCZOS)
-                
-                # 粘贴到新图片上
+
                 combined_image.paste(img, (x_offset, y_offset))
                 x_offset += scaled_width + padding
                 image_index += 1
-            
+
             y_offset += target_height + padding
 
-        # 添加随机色块以规避图片审查
         self.add_random_blocks(combined_image)
-
-        # 保存到临时文件
-        temp_dir = tempfile.gettempdir()
-        temp_path = os.path.join(temp_dir, 'combined_covers.jpg')
-        combined_image.save(temp_path, 'JPEG')
-        return temp_path
+        return combined_image
 
     def add_random_blocks(self, image):
         """添加随机色块以规避图片审查"""
@@ -224,11 +354,6 @@ class EHentaiBot(Star):
                 await event.send(event.plain_result("未找到符合条件的结果"))
                 return
 
-            # 应用搜索结果显示数量限制
-            search_results_limit = int(self.config.get('features', {}).get('search_results_limit', '25'))
-            if len(search_results) > search_results_limit:
-                search_results = search_results[:search_results_limit]
-
             cache_data = {"params": params}
             for idx, result in enumerate(search_results, 1):
                 cache_data[str(idx)] = result['gallery_url']
@@ -240,53 +365,41 @@ class EHentaiBot(Star):
             with open(cache_file, 'w', encoding='utf-8') as f:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
-            # 构建消息内容
             message_components = []
-            
-            # 如果启用了封面图片下载，则下载并拼接封面图片
-            if self.config.get('features', {}).get('enable_cover_image_download', True):
-                # 多线程下载所有封面图片
-                covers = []
-                download_tasks = []
-                for result in search_results:
-                    cover_url = result['cover_url']
-                    download_tasks.append(self.download_thumbnail(cover_url))
-                
-                # 并发执行所有下载任务
-                covers = await asyncio.gather(*download_tasks, return_exceptions=True)
-                # 过滤掉下载失败的图片
-                covers = [cover for cover in covers if not isinstance(cover, Exception) and cover is not None]
+            combined_image_obj = None
 
-                # 创建拼接图片
-                combined_image_path = self.create_combined_image(covers)
-                
-                # 添加拼接后的封面图片
-                if combined_image_path:
-                    message_components.append(Image(combined_image_path))
-            
-            # 构建搜索结果文本
-            output = "搜索结果:\n"
-            #output += "=" * 50 + "\n"
+            covers = await self._download_covers_with_retry(search_results)
+            if covers:
+                combined_image_obj = self.create_combined_image(covers)
+
+            output_lines = []
             for idx, result in enumerate(search_results, 1):
-                output += f"[{idx}] {result['title']}\n"
-                output += (
+                output_lines.append(f"[{idx}] {result['title']}")
+                output_lines.append(
                     f" 作者: {result['author']} | 分类: {result['category']} | 页数: {result['pages']} | "
-                    f"评分: {result['rating']} | 上传时间: {result['timestamp']}\n"
+                    f"评分: {result['rating']} | 上传时间: {result['timestamp']}"
                 )
-                output += f" 画廊链接: {result['gallery_url']}\n"
-                #output += "-" * 80 + "\n"
+                output_lines.append(f" 画廊链接: {result['gallery_url']}")
+            output = "\n".join(output_lines)
 
-            # 检查是否启用格式化消息搜索功能
             if self.config.get('features', {}).get('enable_formatted_message_search', True):
-                # 使用转发消息格式发送搜索结果
-                combined_image_path = None
-                if self.config.get('features', {}).get('enable_cover_image_download', True) and covers:
-                    combined_image_path = self.create_combined_image(covers)
-                await self.send_formatted_search_results(event, output, search_results, combined_image_path)
+                await self.send_formatted_search_results(event, output, search_results, combined_image_obj)
             else:
-                # 使用原有方式发送消息
-                message_components.append(Plain(output))
-                await event.send(MessageEventResult(message_components))
+                temp_file_path = ''
+                try:
+                    if combined_image_obj:
+                        img_byte_arr = io.BytesIO()
+                        combined_image_obj.save(img_byte_arr, format='JPEG', quality=85)
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                            temp_file.write(img_byte_arr.getvalue())
+                            temp_file_path = temp_file.name
+                        message_components.append(Image(temp_file_path))
+
+                    message_components.append(Plain(output))
+                    await event.send(MessageEventResult(message_components))
+                finally:
+                    if temp_file_path and os.path.exists(temp_file_path):
+                        os.unlink(temp_file_path)
 
         except ValueError as e:
             logger.exception("参数解析失败")
@@ -296,70 +409,50 @@ class EHentaiBot(Star):
             logger.exception("搜索失败")
             await event.send(event.plain_result(f"搜索失败：{str(e)}"))
 
-    async def send_formatted_search_results(self, event, result_text, search_results, combined_image_path=None):
+    async def send_formatted_search_results(self, event, result_text, search_results, combined_image_obj=None):
         """发送格式化搜索结果（转发消息格式）"""
-        def split_text_by_length(text, max_length=2000):
-            """将文本按最大长度分割"""
-            parts = []
-            while text:
-                if len(text) <= max_length:
-                    parts.append(text)
-                    break
-                split_pos = text.rfind('\n', 0, max_length)
-                if split_pos == -1:
-                    split_pos = max_length
-                parts.append(text[:split_pos])
-                text = text[split_pos:].lstrip()
-            return parts
-        
-        text_parts = split_text_by_length(result_text)
+        text_parts = self.split_text_by_length(result_text)
         sender_name = "图片搜索bot"
         sender_id = event.get_self_id()
         try:
             sender_id = int(sender_id)
         except Exception:
             pass
-        
-        # 构建转发消息节点列表
+
         nodes_list = []
-        
-        # 如果有封面图片，创建图片节点
-        if combined_image_path:
-            # 应用规避审查机制
-            try:
-                from PIL import Image as PILImage
-                image = PILImage.open(combined_image_path)
-                self.add_random_blocks(image)
-                # 保存处理后的图片
-                processed_image_path = combined_image_path.replace('.jpg', '_processed.jpg')
-                image.save(processed_image_path, quality=85)
-                combined_image_path = processed_image_path
-            except Exception as e:
-                logger.warning(f"图片规避审查处理失败: {str(e)}")
-            
-            image_node = Node(
-                name=sender_name,
-                uin=sender_id,
-                content=[Image(combined_image_path)]
-            )
-            nodes_list.append(image_node)
-        
-        # 创建文本结果节点
-        for i, part in enumerate(text_parts):
-            text_node = Node(
-                name=sender_name,
-                uin=sender_id,
-                content=[Plain(f"[  搜索结果 {i + 1} / {len(text_parts)}  ]\n\n{part}")]
-            )
-            nodes_list.append(text_node)
-        
-        # 一次性发送所有节点
-        if nodes_list:
-            nodes = Nodes(nodes_list)
-            try:
+        temp_file_path = ''
+        try:
+            if combined_image_obj:
+                self.add_random_blocks(combined_image_obj)
+
+                img_byte_arr = io.BytesIO()
+                combined_image_obj.save(img_byte_arr, 'JPEG', quality=85)
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
+                    temp_file.write(img_byte_arr.getvalue())
+                    temp_file_path = temp_file.name
+
+                image_node = Node(
+                    name=sender_name,
+                    uin=sender_id,
+                    content=[Image(temp_file_path)]
+                )
+                nodes_list.append(image_node)
+
+            for i, part in enumerate(text_parts):
+                text_node = Node(
+                    name=sender_name,
+                    uin=sender_id,
+                    content=[Plain(f"[  搜索结果 {i + 1} / {len(text_parts)}  ]\n\n{part}")]
+                )
+                nodes_list.append(text_node)
+
+            if nodes_list:
+                nodes = Nodes(nodes_list)
                 await event.send(event.chain_result([nodes]))
-            except Exception as e:
-                await event.send(event.plain_result(f"发送搜索结果失败: {str(e)}"))
+        finally:
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
 
     @filter.command("eh翻页")
     async def jump_to_page(self, event: AstrMessageEvent):
@@ -399,7 +492,7 @@ class EHentaiBot(Star):
         await self.search_gallery(event)
         
     @filter.command("看eh")
-    async def download_gallery(self, event: AstrMessageEvent, cleaned_text: str):
+    async def download_gallery(self, event: AstrMessageEvent):
         image_folder = Path(self.config['output']['image_folder'])
         image_folder.mkdir(exist_ok=True, parents=True)
         pdf_folder = Path(self.config['output']['pdf_folder'])
@@ -416,28 +509,9 @@ class EHentaiBot(Star):
                 await self.eh_helper(event)
                 return
 
-            url = args[0]
-            pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/\d{7}/[a-f0-9]{10}/$')
-
-            if not pattern.match(url):
-                if url.isdigit() and int(url) > 0:
-                    cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
-                    if cache_file.exists():
-                        with open(cache_file, 'r', encoding='utf-8') as f:
-                            cache_data = json.load(f)
-
-                        if url in cache_data:
-                            url = cache_data[url]
-                            await event.send(event.plain_result(f"正在获取画廊链接: {url}"))
-                        else:
-                            await event.send(event.plain_result(f"未找到索引为 {url} 的画廊"))
-                            return
-                    else:
-                        await event.send(event.plain_result(f"未找到搜索记录，请先使用'搜eh'命令"))
-                        return
-                else:
-                    await event.send(event.plain_result(f"画廊链接异常，请重试..."))
-                    return
+            url = await self._resolve_url_from_input(event, args[0])
+            if not url:
+                return
 
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
                 is_pdf_exist = await self.downloader.process_pagination(event, session, url)
@@ -462,34 +536,14 @@ class EHentaiBot(Star):
                 await event.send(event.plain_result("参数错误，归档操作只需要一个参数（画廊链接或搜索结果序号）"))
                 return
 
-            url = args[0]
+            url = await self._resolve_url_from_input(event, args[0])
+            if not url:
+                return
+
             pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/(\d{7})/([a-f0-9]{10})/?$')
-
             match = pattern.match(url)
             if not match:
-                if url.isdigit() and int(url) > 0:
-                    cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
-                    if cache_file.exists():
-                        with open(cache_file, 'r', encoding='utf-8') as f:
-                            cache_data = json.load(f)
-
-                        if url in cache_data:
-                            url = cache_data[url]
-                            await event.send(event.plain_result(f"正在获取画廊链接: {url}"))
-                        else:
-                            await event.send(event.plain_result(f"未找到索引为 {url} 的画廊"))
-                            return
-                    else:
-                        await event.send(event.plain_result(f"未找到搜索记录，请先使用'搜eh'命令"))
-                        return
-                else:
-                    await event.send(event.plain_result(f"画廊链接异常，请重试..."))
-                    return
-
-            # 重新匹配以获取 gid 和 token
-            match = pattern.match(url)
-            if not match:
-                await event.send(event.plain_result(f"无法解析画廊链接，请重试..."))
+                await event.send(event.plain_result("无法解析画廊链接，请重试..."))
                 return
 
             _, gid, token = match.groups()
