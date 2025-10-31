@@ -1,7 +1,6 @@
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import Image, Plain, Nodes, Node
-from .utils.config_manager import load_config
 from .utils.downloader import Downloader
 from .utils.html_parser import HTMLParser
 from .utils.message_adapter import MessageAdapter
@@ -15,7 +14,8 @@ import logging
 import json
 import io
 import tempfile
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from urllib.parse import urlparse
 from PIL import Image as PILImage, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
@@ -23,9 +23,141 @@ logger = logging.getLogger(__name__)
 
 @register("astrbot_plugin_ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "3.2")
 class EHentaiBot(Star):
+    @staticmethod
+    def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
+        """解析代理配置字符串"""
+        if not proxy_str:
+            return {}
+        
+        parsed = urlparse(proxy_str)
+        
+        if parsed.scheme not in ('http', 'https', 'socks5'):
+            raise ValueError("仅支持HTTP/HTTPS/SOCKS5代理协议")
+        
+        auth = None
+        if parsed.username and parsed.password:
+            auth = aiohttp.BasicAuth(parsed.username, parsed.password)
+        
+        proxy_url = f"{parsed.scheme}://{parsed.hostname}"
+        if parsed.port:
+            proxy_url += f":{parsed.port}"
+        
+        return {
+            'url': proxy_url,
+            'auth': auth
+        }
+    
+    @staticmethod
+    def _transform_config(config: dict) -> Dict[str, Any]:
+        """将扁平配置转换为嵌套字典结构"""
+        # 如果已经是嵌套结构，直接返回
+        if any(isinstance(v, dict) for v in config.values()):
+            return config
+        
+        # 配置映射表：扁平键 -> 嵌套路径
+        json_to_yaml_mapping = {
+            "platform_type": ["platform", "type"],
+            "platform_http_host": ["platform", "http_host"],
+            "platform_http_port": ["platform", "http_port"],
+            "platform_api_token": ["platform", "api_token"],
+            "request_headers_user_agent": ["request", "headers", "User-Agent"],
+            "request_website": ["request", "website"],
+            "request_cookies_ipb_member_id": ["request", "cookies", "ipb_member_id"],
+            "request_cookies_ipb_pass_hash": ["request", "cookies", "ipb_pass_hash"],
+            "request_cookies_igneous": ["request", "cookies", "igneous"],
+            "request_cookies_sk": ["request", "cookies", "sk"],
+            "request_proxies": ["request", "proxies"],
+            "request_concurrency": ["request", "concurrency"],
+            "request_max_retries": ["request", "max_retries"],
+            "request_timeout": ["request", "timeout"],
+            "output_image_folder": ["output", "image_folder"],
+            "output_pdf_folder": ["output", "pdf_folder"],
+            "output_search_cache_folder": ["output", "search_cache_folder"],
+            "output_jpeg_quality": ["output", "jpeg_quality"],
+            "output_max_pages_per_pdf": ["output", "max_pages_per_pdf"],
+            "output_max_filename_length": ["output", "max_filename_length"],
+            "features_enable_formatted_message_search": ["features", "enable_formatted_message_search"],
+            "features_enable_cover_image_download": ["features", "enable_cover_image_download"],
+        }
+        
+        # 需要类型转换的字段
+        int_fields = [
+            "platform_http_port",
+            "request_concurrency",
+            "request_max_retries",
+            "request_timeout",
+            "output_jpeg_quality",
+            "output_max_pages_per_pdf",
+            "output_max_filename_length"
+        ]
+        
+        bool_fields = [
+            "features_enable_formatted_message_search",
+            "features_enable_cover_image_download"
+        ]
+        
+        # 处理配置值
+        processed_config = {}
+        for key, value in config.items():
+            if value == "" or value is None:
+                continue
+            
+            if key in int_fields:
+                try:
+                    processed_config[key] = int(value)
+                except (ValueError, TypeError):
+                    logger.warning(f"无法将 {key} 的值 '{value}' 转换为整数，已跳过此项")
+                    continue
+            elif key in bool_fields:
+                if isinstance(value, str):
+                    processed_config[key] = value.lower() in ('true', '1', 'yes', 'on')
+                else:
+                    processed_config[key] = bool(value)
+            else:
+                processed_config[key] = value
+        
+        # 转换为嵌套结构
+        nested_config = {}
+        for json_key, value in processed_config.items():
+            if json_key in json_to_yaml_mapping:
+                path_parts = json_to_yaml_mapping[json_key]
+                current = nested_config
+                for i, part in enumerate(path_parts[:-1]):
+                    current = current.setdefault(part, {})
+                current[path_parts[-1]] = value
+        
+        # 后处理：添加代理配置和验证cookies
+        if 'request' in nested_config:
+            request = nested_config['request']
+            website = request.get('website')
+            cookies = request.get('cookies', {})
+            
+            # 如果设置为exhentai但cookies不完整，切换为e-hentai
+            if website == 'exhentai':
+                if any(not cookies.get(key, '') for key in ["ipb_member_id", "ipb_pass_hash", "igneous"]):
+                    request['website'] = 'e-hentai'
+                    logger.warning("网站设置为里站exhentai但cookies不完整，已更换为表站e-hentai")
+            
+            # 解析代理配置
+            proxy_str = request.get('proxies', '')
+            proxy_config = EHentaiBot._parse_proxy_config(proxy_str)
+            request['proxy'] = proxy_config
+        
+        # 确保关键配置项始终存在默认结构
+        if 'output' not in nested_config:
+            nested_config['output'] = {}
+        if 'request' not in nested_config:
+            nested_config['request'] = {}
+        if 'features' not in nested_config:
+            nested_config['features'] = {}
+        if 'platform' not in nested_config:
+            nested_config['platform'] = {}
+        
+        return nested_config
+    
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
-        self.config = load_config(config)
+        self.config = self._transform_config(config)
         self.parser = HTMLParser()
         self.uploader = MessageAdapter(self.config)
         self.downloader = Downloader(self.config, self.uploader, self.parser)
@@ -90,7 +222,8 @@ class EHentaiBot(Star):
 
     async def _resolve_url_from_input(self, event: AstrMessageEvent, user_input: str) -> Optional[str]:
         """从用户输入（URL或序号）解析画廊URL"""
-        search_cache_folder = Path(self.config['output']['search_cache_folder'])
+        output_config = self.config.get('output', {})
+        search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
         pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/\d{7}/[a-f0-9]{10}/?$')
 
         if pattern.match(user_input):
@@ -358,7 +491,8 @@ class EHentaiBot(Star):
             for idx, result in enumerate(search_results, 1):
                 cache_data[str(idx)] = result['gallery_url']
 
-            search_cache_folder = Path(self.config['output']['search_cache_folder'])
+            output_config = self.config.get('output', {})
+            search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
             search_cache_folder.mkdir(exist_ok=True, parents=True)
 
             cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
@@ -466,7 +600,8 @@ class EHentaiBot(Star):
             await event.send(event.plain_result("页码应该是大于0的整数"))
             return
     
-        search_cache_folder = Path(self.config['output']['search_cache_folder'])
+        output_config = self.config.get('output', {})
+        search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
         cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
     
         if not cache_file.exists():
@@ -493,14 +628,15 @@ class EHentaiBot(Star):
         
     @filter.command("看eh")
     async def download_gallery(self, event: AstrMessageEvent):
-        image_folder = Path(self.config['output']['image_folder'])
+        output_config = self.config.get('output', {})
+        image_folder = Path(output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages'))
         image_folder.mkdir(exist_ok=True, parents=True)
-        pdf_folder = Path(self.config['output']['pdf_folder'])
+        pdf_folder = Path(output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf'))
         pdf_folder.mkdir(exist_ok=True, parents=True)
-        search_cache_folder = Path(self.config['output']['search_cache_folder'])
+        search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
         search_cache_folder.mkdir(exist_ok=True, parents=True)
 
-        for f in glob.glob(str(Path(self.config['output']['image_folder']) / "*.*")):
+        for f in glob.glob(str(image_folder / "*.*")):
             os.remove(f)
 
         try:
@@ -519,7 +655,9 @@ class EHentaiBot(Star):
                 if not is_pdf_exist:
                     title = self.downloader.gallery_title
                     safe_title = await self.downloader.merge_images_to_pdf(event, title)
-                    await self.uploader.upload_file(event, self.config['output']['pdf_folder'], safe_title)
+                    output_config = self.config.get('output', {})
+                    pdf_folder = output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')
+                    await self.uploader.upload_file(event, pdf_folder, safe_title)
 
         except Exception as e:
             logger.exception("下载失败")
@@ -527,7 +665,8 @@ class EHentaiBot(Star):
 
     @filter.command("归档eh")
     async def archive_gallery(self, event: AstrMessageEvent):
-        search_cache_folder = Path(self.config['output']['search_cache_folder'])
+        output_config = self.config.get('output', {})
+        search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
         search_cache_folder.mkdir(exist_ok=True, parents=True)
 
         try:
@@ -596,7 +735,7 @@ class EHentaiBot(Star):
     @filter.command("重载eh配置")
     async def reload_config(self, event: AstrMessageEvent):
         await event.send(event.plain_result("正在重载配置参数"))
-        self.config = load_config()
+        # 配置由框架管理，无需手动重载
         self.uploader = MessageAdapter(self.config)
         self.downloader = Downloader(self.config, self.uploader, self.parser)
         await event.send(event.plain_result("已重载配置参数"))

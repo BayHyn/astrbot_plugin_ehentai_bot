@@ -68,47 +68,41 @@ https://github.com/drdon1234/astrbot_plugin_ehentai_bot
 
 使用前请先修改配置文件：
 
-1. **通过 WebUI 的插件管理面板设置（推荐）**
+**通过 WebUI 的插件管理面板设置**
 - 打开 "AstrBot WebUI" -> "插件管理" -> 找到本插件 -> "操作" -> "插件配置":
 ![image](https://github.com/user-attachments/assets/3f6487f6-27c6-4624-8cb7-9a8179538298)
-- 插件将优先使用WebUI的配置并写入本地配置文件
-- 缺少有效配置项时请不要填入内容，缺省项默认从本地配置文件读取
 
-2. **通过插件本地目录的config.yaml文件设置**
-- 平台设置
-```
-platform:
-  type: "napcat" # 消息平台，兼容 napcat, llonebot, lagrange
-  http_host: "127.0.0.1" # HTTP 服务器 IP，非 docker 部署一般为 127.0.0.1 或 localhost，docker 部署一般为宿主机局域网 IP
-  http_port: 2333 # HTTP 服务器端口
-  api_token: "" # HTTP 服务器 token，没有则不填
-```
+所有配置项均通过WebUI的插件管理面板进行设置。配置项说明如下：
 
-- 请求设置
-```
-request:
-  headers:
-    User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
-  website: "e-hentai"  # 表站: e-hentai | 里站: exhentai
-  cookies: # 缺少有效 cookie 时请不要将 website 设置为 exhentai
-    ipb_member_id: ""
-    ipb_pass_hash: ""
-    igneous: ""
-  proxies: "" # 墙内用户必填项，代理软件位于宿主机时，非 docker 部署一般为http://127.0.0.1:port，docker 部署一般为http://{宿主机局域网ip}:port
-  concurrency: 10 # 并发数量限制
-  max_retries: 3 # 请求重试次数，如果你的代理不稳定或带宽不够建议适量增加次数
-  timeout: 5 # 超时时间，同上
-```
+- **平台设置**
+  - `platform_type`: 消息平台类型，兼容 napcat, llonebot, lagrange，默认值：napcat
+  - `platform_http_host`: HTTP 服务器 IP，非 docker 部署一般为 127.0.0.1，docker 部署一般为宿主机局域网 ip，默认值：127.0.0.1
+  - `platform_http_port`: HTTP 服务器端口，默认值：2333
+  - `platform_api_token`: HTTP 服务器 Token，没有则不填
 
-- 输出设置
-```
-output:
-  image_folder: "/app/sharedFolder/ehentai/tempImages" # 缓存画廊图片的路径
-  pdf_folder: "/app/sharedFolder/ehentai/pdf" # 存放pdf文件的路径
-  search_cache_folder: "/app/sharedFolder/ehentai/searchCache" # 缓存每个用户搜索结果的路径
-  jpeg_quality: 85 # 图片质量，100 为不压缩，85 左右可以达到文件大小和图片质量的最佳平衡
-  max_pages_per_pdf: 200 # 单个 PDF 文件最大页数
-```
+- **请求设置**
+  - `request_headers_user_agent`: HTTP请求使用的User-Agent，默认值：Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36
+  - `request_website`: 网站类型，表站: e-hentai | 里站: exhentai，缺少有效cookie时请不要将website设置为exhentai，默认值：e-hentai
+  - `request_cookies_ipb_member_id`: Cookie中的ipb_member_id值
+  - `request_cookies_ipb_pass_hash`: Cookie中的ipb_pass_hash值
+  - `request_cookies_igneous`: Cookie中的igneous值
+  - `request_cookies_sk`: Cookie中的sk值
+  - `request_proxies`: 代理设置（墙内用户必填项），代理软件位于宿主机时，非docker部署一般为http://127.0.0.1:port，docker部署一般为http://{宿主机局域网ip}:port
+  - `request_concurrency`: 并发数量限制，默认值：10
+  - `request_max_retries`: 请求重试次数，如果你的代理不稳定或带宽不够建议适量增加次数，默认值：3
+  - `request_timeout`: 请求超时时间（秒），默认值：5
+
+- **输出设置**
+  - `output_image_folder`: 缓存画廊图片的路径，默认值：/app/sharedFolder/ehentai/tempImages
+  - `output_pdf_folder`: 存放PDF文件的路径，默认值：/app/sharedFolder/ehentai/pdf
+  - `output_search_cache_folder`: 缓存搜索结果的路径，默认值：/app/sharedFolder/ehentai/searchCache
+  - `output_jpeg_quality`: 图片质量，100为不压缩，85左右可以达到文件大小和图片质量的最佳平衡，默认值：85
+  - `output_max_pages_per_pdf`: 单个PDF文件最大页数，超过此页数将分割为多个PDF文件，默认值：200
+  - `output_max_filename_length`: 文件名最大长度限制，超出部分将被截取，默认值：200
+
+- **功能特性**
+  - `features_enable_formatted_message_search`: 是否启用格式化消息搜索功能，默认值：true
+  - `features_enable_cover_image_download`: 是否下载拼接封面图片，默认值：true
 
 ---
 
@@ -117,7 +111,6 @@ output:
 使用前请先安装以下依赖库：
 - aiofiles
 - aiohttp
-- PyYAML
 - natsort
 - glob2
 - python-magic

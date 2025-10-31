@@ -1,7 +1,6 @@
 from astrbot.api.event import AstrMessageEvent
 import os
 import re
-import yaml
 import aiohttp
 import asyncio
 import logging
@@ -16,10 +15,11 @@ logger = logging.getLogger(__name__)
 class MessageAdapter:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.platform_type = self.config["platform"]["type"]
-        self.http_host = self.config["platform"]["http_host"]
-        self.http_port = self.config["platform"]["http_port"]
-        self.api_token = self.config["platform"]["api_token"]
+        platform_config = self.config.get("platform", {})
+        self.platform_type = platform_config.get("type", "napcat")
+        self.http_host = platform_config.get("http_host", "127.0.0.1")
+        self.http_port = platform_config.get("http_port", 2333)
+        self.api_token = platform_config.get("api_token", "")
 
     def get_headers(self) -> Dict[str, str]:
         headers = {'Content-Type': 'application/json'}

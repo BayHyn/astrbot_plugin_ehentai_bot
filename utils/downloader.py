@@ -23,38 +23,45 @@ class Downloader:
         self.config = config
         self.uploader = uploader
         self.parser = parser
-        self.semaphore = asyncio.Semaphore(self.config['request']['concurrency'])
+        request_config = config.get('request', {})
+        self.semaphore = asyncio.Semaphore(request_config.get('concurrency', 10))
         self.gallery_title = "output"
-        Path(self.config['output']['image_folder']).mkdir(parents=True, exist_ok=True)
-        Path(self.config['output']['pdf_folder']).mkdir(parents=True, exist_ok=True)
+        output_config = config.get('output', {})
+        Path(output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages')).mkdir(parents=True, exist_ok=True)
+        Path(output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')).mkdir(parents=True, exist_ok=True)
 
     def _prepare_request_params(self) -> Dict[str, Any]:
         """准备通用请求参数"""
-        proxy_conf = self.config['request'].get('proxy', {})
-        cookies = self.config['request']['cookies'] if self.config['request']['website'] == 'exhentai' else None
+        request_config = self.config.get('request', {})
+        proxy_conf = request_config.get('proxy', {})
+        website = request_config.get('website', 'e-hentai')
+        cookies = request_config.get('cookies') if website == 'exhentai' else None
+        headers = request_config.get('headers', {})
         return {
-            "headers": self.config['request']['headers'],
+            "headers": headers,
             "proxy": proxy_conf.get('url'),
             "proxy_auth": proxy_conf.get('auth'),
-            "timeout": aiohttp.ClientTimeout(total=self.config['request']['timeout']),
+            "timeout": aiohttp.ClientTimeout(total=request_config.get('timeout', 30)),
             "ssl": False,
             "cookies": cookies
         }
 
     async def fetch_with_retry(self, session: aiohttp.ClientSession, url: str) -> Optional[str]:
         params = self._prepare_request_params()
-        for attempt in range(self.config['request']['max_retries']):
+        request_config = self.config.get('request', {})
+        max_retries = request_config.get('max_retries', 3)
+        for attempt in range(max_retries):
             try:
                 async with self.semaphore:
                     async with session.get(url, **params) as response:
                         response.raise_for_status()
                         return await response.text()
             except asyncio.TimeoutError:
-                logger.warning(f"请求超时，尝试 {attempt + 1}/{self.config['request']['max_retries']}: {url}")
+                logger.warning(f"请求超时，尝试 {attempt + 1}/{max_retries}: {url}")
             except aiohttp.ClientResponseError as e:
-                logger.warning(f"HTTP错误 {e.status}，尝试 {attempt + 1}/{self.config['request']['max_retries']}: {url}")
+                logger.warning(f"HTTP错误 {e.status}，尝试 {attempt + 1}/{max_retries}: {url}")
             except Exception as e:
-                logger.warning(f"尝试 {attempt + 1}/{self.config['request']['max_retries']} 失败: {url} - {str(e)}")
+                logger.warning(f"尝试 {attempt + 1}/{max_retries} 失败: {url} - {str(e)}")
 
             await asyncio.sleep(2 ** attempt)
 
@@ -64,7 +71,12 @@ class Downloader:
     async def download_image_with_fixed_number(self, session: aiohttp.ClientSession, img_url: str,
                                                image_number: int) -> bool:
         params = self._prepare_request_params()
-        for attempt in range(self.config['request']['max_retries']):
+        request_config = self.config.get('request', {})
+        max_retries = request_config.get('max_retries', 3)
+        output_config = self.config.get('output', {})
+        image_folder = output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages')
+        jpeg_quality = output_config.get('jpeg_quality', 85)
+        for attempt in range(max_retries):
             try:
                 async with self.semaphore:
                     async with session.get(img_url, **params) as response:
@@ -74,7 +86,7 @@ class Downloader:
                         if len(content) < 1024:
                             raise ValueError("无效的图片内容")
 
-                        image_path = Path(self.config['output']['image_folder']) / f"{image_number}.jpg"
+                        image_path = Path(image_folder) / f"{image_number}.jpg"
 
                         async with aiofiles.open(image_path, "wb") as file:
                             await file.write(content)
@@ -84,10 +96,10 @@ class Downloader:
                                 if img.mode in ('RGBA', 'LA'):
                                     background = Image.new('RGB', img.size, (255, 255, 255))
                                     background.paste(img, mask=img.split()[-1])
-                                    background.save(image_path, 'JPEG', quality=self.config['output']['jpeg_quality'])
+                                    background.save(image_path, 'JPEG', quality=jpeg_quality)
                                 else:
                                     img = img.convert('RGB')
-                                    img.save(image_path, 'JPEG', quality=self.config['output']['jpeg_quality'])
+                                    img.save(image_path, 'JPEG', quality=jpeg_quality)
 
                         return True
             except Exception as e:
@@ -120,10 +132,12 @@ class Downloader:
         if not main_html:
             raise ValueError("无法获取主页面内容")
 
-        max_filename_length = self.config['output'].get('max_filename_length', 200)
+        output_config = self.config.get('output', {})
+        request_config = self.config.get('request', {})
+        max_filename_length = output_config.get('max_filename_length', 200)
         self.gallery_title, last_page_number = self.parser.extract_gallery_info(main_html, max_filename_length)
 
-        pdf_folder = self.config['output']['pdf_folder']
+        pdf_folder = output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')
         all_files = os.listdir(pdf_folder)
         pattern = re.compile(rf"^{re.escape(self.gallery_title)}(?: part \d+)?\.pdf$")
         matching_files = [
@@ -170,7 +184,7 @@ class Downloader:
                 finally:
                     queue.task_done()
 
-        workers = [download_worker() for _ in range(self.config['request']['concurrency'])]
+        workers = [download_worker() for _ in range(request_config.get('concurrency', 10))]
         await asyncio.gather(*workers)
 
         successful = [r for r in results if r.get("success")]
@@ -215,14 +229,21 @@ class Downloader:
                 finally:
                     retry_queue.task_done()
 
-        retry_workers = [retry_worker() for _ in range(max(1, self.config['request']['concurrency'] // 2))]
+        request_config = self.config.get('request', {})
+        concurrency = request_config.get('concurrency', 10)
+        retry_workers = [retry_worker() for _ in range(max(1, concurrency // 2))]
         await asyncio.gather(*retry_workers)
 
         return retry_results
 
     async def merge_images_to_pdf(self, event: AstrMessageEvent, gallery_title: str) -> str:
         await event.send(event.plain_result("正在将图片合并为pdf文件，请稍候..."))
-        image_files = natsorted(glob.glob(str(Path(self.config['output']['image_folder']) / "*.jpg")))
+        output_config = self.config.get('output', {})
+        image_folder = output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages')
+        pdf_folder = output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')
+        max_filename_length = output_config.get('max_filename_length', 200)
+        max_pages = output_config.get('max_pages_per_pdf', 200)
+        image_files = natsorted(glob.glob(str(Path(image_folder) / "*.jpg")))
         if not image_files:
             logger.warning("没有可用的图片文件")
         
@@ -230,12 +251,10 @@ class Downloader:
         from .html_parser import HTMLParser
         
         # 从配置中获取文件名长度限制，并为PDF后缀预留空间
-        max_filename_length = self.config['output'].get('max_filename_length', 200)
         pdf_safe_length = max_filename_length - 20  # 为 " part XX.pdf" 预留空间
         safe_title = HTMLParser.sanitize_filename(gallery_title, max_length=pdf_safe_length)
         
-        pdf_dir = Path(self.config['output']['pdf_folder'])
-        max_pages = self.config['output']['max_pages_per_pdf']
+        pdf_dir = Path(pdf_folder)
         
         if 0 < max_pages < len(image_files):
             total = math.ceil(len(image_files) / max_pages)
@@ -258,22 +277,25 @@ class Downloader:
             
     async def get_archive_url(self, session: aiohttp.ClientSession, gid: str, token: str) -> Optional[str]:
         """获取画廊归档下载链接"""
-        website = self.config['request']['website']
+        request_config = self.config.get('request', {})
+        website = request_config.get('website', 'e-hentai')
         base_url = f"https://{website}.org"
         
         # 获取归档页面
         archive_url = f"{base_url}/archiver.php?gid={gid}&token={token}"
         
-        proxy_conf = self.config['request'].get('proxy', {})
-        cookies = self.config['request']['cookies'] if website == 'exhentai' else None
+        proxy_conf = request_config.get('proxy', {})
+        cookies = request_config.get('cookies') if website == 'exhentai' else None
+        headers = request_config.get('headers', {})
+        timeout = request_config.get('timeout', 30)
         
         try:
             async with session.post(
                 archive_url,
-                headers=self.config['request']['headers'],
+                headers=headers,
                 proxy=proxy_conf.get('url'),
                 proxy_auth=proxy_conf.get('auth'),
-                timeout=aiohttp.ClientTimeout(total=self.config['request']['timeout']),
+                timeout=aiohttp.ClientTimeout(total=timeout),
                 ssl=False,
                 cookies=cookies
             ) as response:
@@ -283,10 +305,10 @@ class Downloader:
                 # 请求下载原始归档
                 async with session.post(
                     archive_url,
-                    headers=self.config['request']['headers'],
+                    headers=headers,
                     proxy=proxy_conf.get('url'),
                     proxy_auth=proxy_conf.get('auth'),
-                    timeout=aiohttp.ClientTimeout(total=self.config['request']['timeout']),
+                    timeout=aiohttp.ClientTimeout(total=timeout),
                     ssl=False,
                     cookies=cookies,
                     data={
@@ -307,10 +329,10 @@ class Downloader:
                     # 清除会话
                     await session.post(
                         archive_url,
-                        headers=self.config['request']['headers'],
+                        headers=headers,
                         proxy=proxy_conf.get('url'),
                         proxy_auth=proxy_conf.get('auth'),
-                        timeout=aiohttp.ClientTimeout(total=self.config['request']['timeout']),
+                        timeout=aiohttp.ClientTimeout(total=timeout),
                         ssl=False,
                         cookies=cookies,
                         data={"invalidate_sessions": "1"}
@@ -324,7 +346,9 @@ class Downloader:
             
     async def crawl_ehentai(self, search_term: str, min_rating: int = 0, min_pages: int = 0, target_page: int = 1) -> \
     List[Dict[str, Any]]:
-        base_url = f"https://{self.config['request']['website']}.org/"
+        request_config = self.config.get('request', {})
+        website = request_config.get('website', 'e-hentai')
+        base_url = f"https://{website}.org/"
         search_params = {'f_search': search_term, 'f_srdd': min_rating, 'f_spf': min_pages, 'range': target_page}
         parsed_url = urlparse(base_url)
         query = parse_qs(parsed_url.query)
